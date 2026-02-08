@@ -43,14 +43,14 @@ Base URL: `http://localhost:4000`
 
 The `/api/search` endpoint combines multiple retrieval strategies:
 
-1. **Semantic search** — Gemini embeddings (3072d) or BGE-M3 (1024d) via Qdrant
+1. **Semantic search** — Gemini embeddings (3072d) via Qdrant
 2. **Keyword search** — Elasticsearch BM25 with phrase matching and fuzzy fallback
 3. **Reciprocal Rank Fusion** — Merges semantic and keyword rankings (K=60)
 4. **Knowledge graph** — Neo4j entity lookup with source resolution and ayah boosting
 5. **LLM reranking** — Optional reranking via GPT-OSS or Gemini Flash through OpenRouter
 6. **Query expansion** — Expands queries with semantically related terms for broader recall
 
-Key parameters: `mode` (hybrid/semantic/keyword), `reranker`, `embeddingModel` (gemini/bge-m3), `includeQuran`, `includeHadith`, `includeBooks`, `includeGraph`, `refine`.
+Key parameters: `mode` (hybrid/semantic/keyword), `reranker`, `includeQuran`, `includeHadith`, `includeBooks`, `includeGraph`, `refine`.
 
 ## Setup
 
@@ -88,7 +88,6 @@ ALLOWED_ORIGINS=http://localhost:3000
 Optional:
 ```
 OPENROUTER_API_KEY=    # Gemini embeddings and LLM reranking
-BGE_M3_URL=            # Local BGE-M3 embedding server
 GROQ_API_KEY=          # Voice transcription
 ```
 
@@ -115,7 +114,7 @@ src/
 ├── db.ts                       # Prisma singleton (PostgreSQL)
 ├── qdrant.ts                   # Qdrant singleton + collection config
 ├── constants.ts                # Shared constants
-├── embeddings/                 # Gemini and BGE-M3 embedding clients
+├── embeddings/                 # Gemini embedding client
 ├── graph/                      # Neo4j driver + entity search
 ├── search/                     # Elasticsearch client + keyword search
 ├── lib/                        # OpenRouter client, TTL cache

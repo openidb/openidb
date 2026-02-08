@@ -1,5 +1,15 @@
 /**
- * BGE-M3 Embeddings Client
+ * ============================================================
+ * IN DEVELOPMENT — BGE-M3 Embeddings Client
+ * ============================================================
+ *
+ * This module is archived and not used in the live API.
+ * BGE-M3 support is in early development — no production data
+ * exists in BGE Qdrant collections.
+ *
+ * The active embedding model is Gemini (see ./gemini.ts).
+ * This file is kept for future development.
+ * ============================================================
  *
  * Connects to a local FastAPI server running BAAI/bge-m3 model.
  * Provides embeddings for Arabic/multilingual text with 1024 dimensions.
@@ -15,10 +25,7 @@
  *   BGE_M3_URL - Server URL (default: http://localhost:8000)
  */
 
-import { BGE_DIMENSIONS } from "../constants";
-
-// Re-export for convenience
-export { BGE_DIMENSIONS };
+const BGE_DIMENSIONS = 1024;
 
 // Default server URL
 const BGE_SERVER_URL = process.env.BGE_M3_URL || "http://localhost:8000";
