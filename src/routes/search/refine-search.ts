@@ -1,4 +1,5 @@
 import { generateEmbedding, normalizeArabicText } from "../../embeddings";
+import { QDRANT_QURAN_COLLECTION } from "../../qdrant";
 import { startTimer } from "../../utils/timing";
 import { keywordSearchES } from "../../search/elasticsearch-search";
 import { shouldSkipSemanticSearch, getSearchStrategy } from "./query-utils";
@@ -40,7 +41,7 @@ export interface RefineSearchResult {
 export async function executeRefineSearch(params: SearchParams): Promise<RefineSearchResult> {
   const {
     query, includeQuran, includeHadith, includeBooks,
-    fuzzyEnabled, embeddingModel, pageCollection, quranCollection, hadithCollection,
+    fuzzyEnabled,
     reranker, refineSimilarityCutoff,
     refineOriginalWeight, refineExpandedWeight,
     refineBookPerQuery, refineAyahPerQuery, refineHadithPerQuery,
@@ -79,10 +80,10 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
 
     const normalizedQ = normalizeArabicText(q);
     const shouldSkipSemantic = shouldSkipSemanticSearch(q);
-    const qEmbedding = shouldSkipSemantic ? undefined : await generateEmbedding(normalizedQ, embeddingModel);
+    const qEmbedding = shouldSkipSemantic ? undefined : await generateEmbedding(normalizedQ);
 
     const [bookSemantic, bookKeyword] = await Promise.all([
-      semanticSearch(q, refineBookPerQuery, null, refineSimilarityCutoff, qEmbedding, pageCollection, embeddingModel).catch(() => []),
+      semanticSearch(q, refineBookPerQuery, null, refineSimilarityCutoff, qEmbedding).catch(() => []),
       shouldSkipKeyword
         ? Promise.resolve([] as RankedResult[])
         : keywordSearchES(q, refineBookPerQuery, null, fuzzyOptions).catch(() => []),
@@ -94,21 +95,18 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
     let hadithResults: HadithRankedResult[] = [];
 
     if (shouldSkipKeyword) {
-      const defaultMeta: AyahSearchMeta = { collection: quranCollection, usedFallback: false, embeddingTechnique: "metadata-translation" };
+      const defaultMeta: AyahSearchMeta = { collection: QDRANT_QURAN_COLLECTION, usedFallback: false, embeddingTechnique: "metadata-translation" };
       ayahResults = includeQuran
-        ? (await searchAyahsSemantic(q, refineAyahPerQuery, refineSimilarityCutoff, qEmbedding, quranCollection, embeddingModel).catch(() => ({ results: [], meta: defaultMeta }))).results
+        ? (await searchAyahsSemantic(q, refineAyahPerQuery, refineSimilarityCutoff, qEmbedding).catch(() => ({ results: [], meta: defaultMeta }))).results
         : [];
       hadithResults = includeHadith
-        ? await searchHadithsSemantic(q, refineHadithPerQuery, refineSimilarityCutoff, qEmbedding, hadithCollection, embeddingModel).catch(() => [])
+        ? await searchHadithsSemantic(q, refineHadithPerQuery, refineSimilarityCutoff, qEmbedding).catch(() => [])
         : [];
     } else {
       const refineHybridOptionsWithEmbedding = {
         ...refineHybridOptions,
         reranker: "none" as RerankerType,
         precomputedEmbedding: qEmbedding,
-        quranCollection,
-        hadithCollection,
-        embeddingModel,
       };
       ayahResults = includeQuran
         ? await searchAyahsHybrid(q, refineAyahPerQuery, refineHybridOptionsWithEmbedding).catch(() => [])

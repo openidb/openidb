@@ -15,31 +15,25 @@
  *   --pages-only               Only process book pages, skip Quran and Hadith embeddings
  *   --hadiths-only             Only process hadiths, skip pages and quran
  *   --hadith-collections=a,b   Only process specific hadith collections (comma-separated slugs)
- *   --model=gemini|bge-m3      Embedding model to use (default: gemini)
  *
  * Examples:
  *   bun run scripts/generate-embeddings.ts --hadiths-only --hadith-collections=hisn --force
  *   bun run scripts/generate-embeddings.ts --hadith-collections=bukhari,muslim
- *   bun run scripts/generate-embeddings.ts --model=bge-m3 --force
  */
 
 import "../env";
 import { prisma } from "../../src/db";
 import {
   qdrant,
-  PAGES_COLLECTION as PAGES_COLLECTION_GEMINI,
+  PAGES_COLLECTION,
   QDRANT_QURAN_COLLECTION,
-  HADITHS_COLLECTION as HADITHS_COLLECTION_GEMINI,
-  PAGES_COLLECTION_BGE,
-  HADITHS_COLLECTION_BGE,
-  GEMINI_DIMENSIONS,
-  BGE_DIMENSIONS,
+  HADITHS_COLLECTION,
+  EMBEDDING_DIMENSIONS,
 } from "../../src/qdrant";
 import {
   generateEmbeddings,
   normalizeArabicText,
   truncateForEmbedding,
-  type EmbeddingModel,
 } from "../../src/embeddings";
 import crypto from "crypto";
 import { generateSunnahUrl } from "../../src/utils/source-urls";
@@ -59,16 +53,7 @@ const hadithCollectionsFilter: string[] | null = hadithCollectionsArg
   ? hadithCollectionsArg.split("=")[1].split(",").map((s) => s.trim())
   : null;
 
-// Parse --model flag (gemini or bge-m3)
-const modelArg = process.argv.find((arg) => arg.startsWith("--model="));
-const embeddingModel: EmbeddingModel = modelArg?.split("=")[1] === "bge-m3" ? "bge-m3" : "gemini";
-const EMBEDDING_DIMENSIONS = embeddingModel === "bge-m3" ? BGE_DIMENSIONS : GEMINI_DIMENSIONS;
-
-// Determine collections based on model
-const PAGES_COLLECTION = embeddingModel === "bge-m3" ? PAGES_COLLECTION_BGE : PAGES_COLLECTION_GEMINI;
-const HADITHS_COLLECTION = embeddingModel === "bge-m3" ? HADITHS_COLLECTION_BGE : HADITHS_COLLECTION_GEMINI;
-
-console.log(`Using embedding model: ${embeddingModel} (${EMBEDDING_DIMENSIONS} dimensions)`);
+console.log(`Using embedding model: gemini (${EMBEDDING_DIMENSIONS} dimensions)`);
 console.log(`Pages collection: ${PAGES_COLLECTION}`);
 console.log(`Hadiths collection: ${HADITHS_COLLECTION}`);
 
@@ -212,7 +197,7 @@ async function processBatch(
   });
 
   // Generate embeddings in batch
-  const embeddings = await generateEmbeddings(texts, embeddingModel);
+  const embeddings = await generateEmbeddings(texts);
 
   // Prepare points for Qdrant
   const points = pages.map((page, index) => ({
@@ -347,7 +332,7 @@ async function processAyahBatch(
   });
 
   // Generate embeddings in batch
-  const embeddings = await generateEmbeddings(texts, embeddingModel);
+  const embeddings = await generateEmbeddings(texts);
 
   // Prepare points for Qdrant
   const points = ayahs.map((ayah, index) => ({
@@ -642,7 +627,7 @@ async function processHadithBatch(
   });
 
   // Generate embeddings in batch
-  const embeddings = await generateEmbeddings(texts, embeddingModel);
+  const embeddings = await generateEmbeddings(texts);
 
   // Prepare points for Qdrant
   const points = hadiths.map((hadith, index) => {

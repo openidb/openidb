@@ -9,7 +9,7 @@
 
 import "../env";
 import { qdrant } from "../../src/qdrant";
-import { GEMINI_DIMENSIONS } from "../../src/constants";
+import { EMBEDDING_DIMENSIONS } from "../../src/constants";
 import { getTechniques, getCollectionNames } from "./registry";
 
 // Parse args
@@ -25,7 +25,7 @@ async function main() {
   console.log("Benchmark Collections Setup");
   console.log("=".repeat(60));
   console.log(`Techniques: ${techniques.map((t) => t.id).join(", ")}`);
-  console.log(`Dimensions: ${GEMINI_DIMENSIONS}`);
+  console.log(`Dimensions: ${EMBEDDING_DIMENSIONS}`);
   console.log(`Force recreate: ${forceFlag}`);
   console.log();
 
@@ -55,7 +55,7 @@ async function main() {
       console.log(`  CREATE ${collectionName}`);
       await qdrant.createCollection(collectionName, {
         vectors: {
-          size: GEMINI_DIMENSIONS,
+          size: EMBEDDING_DIMENSIONS,
           distance: "Cosine",
         },
         optimizers_config: {

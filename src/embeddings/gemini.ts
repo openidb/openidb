@@ -6,7 +6,7 @@
  */
 
 import OpenAI from "openai";
-import { GEMINI_DIMENSIONS } from "../constants";
+import { EMBEDDING_DIMENSIONS } from "../constants";
 import {
   getCachedEmbedding,
   setCachedEmbedding,
@@ -21,7 +21,7 @@ import {
 } from "./cache-persistent";
 
 // Re-export dimensions
-export { GEMINI_DIMENSIONS };
+export { EMBEDDING_DIMENSIONS };
 
 // Use OpenRouter to access Gemini embedding models
 const openai = new OpenAI({

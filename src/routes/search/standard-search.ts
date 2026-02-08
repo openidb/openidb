@@ -1,4 +1,5 @@
 import { generateEmbedding, normalizeArabicText } from "../../embeddings";
+import { QDRANT_QURAN_COLLECTION } from "../../qdrant";
 import { startTimer } from "../../utils/timing";
 import { normalizeBM25Score } from "../../search/bm25";
 import {
@@ -53,7 +54,7 @@ export async function executeStandardSearch(params: SearchParams): Promise<Stand
   const {
     query, mode, bookId, limit, bookLimit, similarityCutoff,
     includeQuran, includeHadith, includeBooks,
-    fuzzyEnabled, embeddingModel, pageCollection, quranCollection, hadithCollection,
+    fuzzyEnabled,
   } = params;
 
   const fuzzyOptions = { fuzzyFallback: fuzzyEnabled };
@@ -77,7 +78,7 @@ export async function executeStandardSearch(params: SearchParams): Promise<Stand
   const embTimer = startTimer();
   const embeddingPromise = shouldSkipSemantic
     ? Promise.resolve(undefined)
-    : generateEmbedding(normalizedQuery, embeddingModel);
+    : generateEmbedding(normalizedQuery);
 
   const kwBooksTimer = startTimer();
   const keywordBooksPromise = (shouldSkipKeyword || !includeBooks)
@@ -108,23 +109,23 @@ export async function executeStandardSearch(params: SearchParams): Promise<Stand
   const semBooksTimer = startTimer();
   const semanticBooksPromise = (mode === "keyword" || !includeBooks)
     ? Promise.resolve([] as RankedResult[])
-    : semanticSearch(query, fetchLimit, bookId, similarityCutoff, queryEmbedding, pageCollection, embeddingModel)
+    : semanticSearch(query, fetchLimit, bookId, similarityCutoff, queryEmbedding)
         .then(res => { timing.semantic.books = semBooksTimer(); return res; })
         .catch(() => [] as RankedResult[]);
 
-  const defaultAyahMeta: AyahSearchMeta = { collection: quranCollection, usedFallback: false, embeddingTechnique: "metadata-translation" };
+  const defaultAyahMeta: AyahSearchMeta = { collection: QDRANT_QURAN_COLLECTION, usedFallback: false, embeddingTechnique: "metadata-translation" };
 
   const semAyahsTimer = startTimer();
   const semanticAyahsPromise = (mode === "keyword" || bookId || !includeQuran)
     ? Promise.resolve({ results: [] as AyahRankedResult[], meta: defaultAyahMeta })
-    : searchAyahsSemantic(query, fetchLimit, similarityCutoff, queryEmbedding, quranCollection, embeddingModel)
+    : searchAyahsSemantic(query, fetchLimit, similarityCutoff, queryEmbedding)
         .then(res => { timing.semantic.ayahs = semAyahsTimer(); return res; })
         .catch(() => ({ results: [] as AyahRankedResult[], meta: defaultAyahMeta }));
 
   const semHadithsTimer = startTimer();
   const semanticHadithsPromise = (mode === "keyword" || bookId || !includeHadith)
     ? Promise.resolve([] as HadithRankedResult[])
-    : searchHadithsSemantic(query, fetchLimit, similarityCutoff, queryEmbedding, hadithCollection, embeddingModel)
+    : searchHadithsSemantic(query, fetchLimit, similarityCutoff, queryEmbedding)
         .then(res => { timing.semantic.hadiths = semHadithsTimer(); return res; })
         .catch(() => [] as HadithRankedResult[]);
 

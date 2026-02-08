@@ -1,5 +1,3 @@
-import type { EmbeddingModel } from "../../embeddings";
-
 export type RerankerType = "gpt-oss-20b" | "gpt-oss-120b" | "gemini-flash" | "none";
 
 export type SearchMode = "hybrid" | "semantic" | "keyword";

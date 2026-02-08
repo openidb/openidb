@@ -1,7 +1,5 @@
 import type { Context } from "hono";
 import type { RerankerType, SearchMode } from "./types";
-import type { EmbeddingModel } from "../../embeddings";
-import { getCollections } from "../../qdrant";
 import { parseBoundedInt, parseBoundedFloat } from "../../utils/pagination";
 import {
   DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, MAX_QUERY_LENGTH,
@@ -37,11 +35,6 @@ export interface SearchParams {
   refineHadithRerank: number;
   queryExpansionModel: string;
   includeGraph: boolean;
-  embeddingModel: EmbeddingModel;
-  pageCollection: string;
-  quranCollection: string;
-  hadithCollection: string;
-  embeddingDimensions: number;
 }
 
 export function parseSearchParams(c: Context): SearchParams | { error: string; status: number } {
@@ -64,9 +57,6 @@ export function parseSearchParams(c: Context): SearchParams | { error: string; s
     ? rerankerParam : "none";
 
   const refine = c.req.query("refine") === "true";
-  const embeddingModelParam = c.req.query("embeddingModel") as EmbeddingModel | undefined;
-  const embeddingModel: EmbeddingModel = embeddingModelParam === "bge-m3" ? "bge-m3" : "gemini";
-  const { pages: pageCollection, quran: quranCollection, hadith: hadithCollection, dimensions: embeddingDimensions } = getCollections(embeddingModel);
 
   return {
     query,
@@ -96,10 +86,5 @@ export function parseSearchParams(c: Context): SearchParams | { error: string; s
     refineHadithRerank: parseBoundedInt(c.req.query("refineHadithRerank"), 15, 5, 25),
     queryExpansionModel: c.req.query("queryExpansionModel") || "gemini-flash",
     includeGraph: c.req.query("includeGraph") !== "false",
-    embeddingModel,
-    pageCollection,
-    quranCollection,
-    hadithCollection,
-    embeddingDimensions,
   };
 }

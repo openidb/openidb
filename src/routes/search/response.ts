@@ -1,6 +1,6 @@
 import { prisma } from "../../db";
 import { startTimer } from "../../utils/timing";
-import { getEmbeddingModelName } from "../../embeddings";
+import { EMBEDDING_DIMENSIONS } from "../../embeddings";
 import {
   searchEntities,
   resolveSources,
@@ -298,7 +298,7 @@ export async function buildDebugStats(
     timing: { queryExpansion: number; parallelSearches: number; merge: number; rerank: number };
   },
 ): Promise<SearchDebugStats> {
-  const { mode, similarityCutoff, reranker, refine, queryExpansionModel, embeddingModel, embeddingDimensions, query } = params;
+  const { mode, similarityCutoff, reranker, refine, queryExpansionModel, query } = params;
   const shouldSkipKeyword = getSearchStrategy(query) === 'semantic_only' || mode === "semantic";
   const databaseStats = await getDatabaseStats();
 
@@ -320,8 +320,8 @@ export async function buildDebugStats(
       keywordEngine: 'elasticsearch',
       bm25Params: { k1: 1.2, b: 0.75, normK: 5 },
       rrfK: RRF_K,
-      embeddingModel: getEmbeddingModelName(embeddingModel),
-      embeddingDimensions,
+      embeddingModel: "Google Gemini embedding-001",
+      embeddingDimensions: EMBEDDING_DIMENSIONS,
       rerankerModel: reranker === 'none' ? null : reranker,
       queryExpansionModel: refine ? getQueryExpansionModelId(queryExpansionModel) : null,
       quranCollection: ayahSearchMeta.collection,

@@ -11,12 +11,11 @@
  * Stores embeddings in a separate Qdrant collection while preserving
  * original ayah text in payload for display.
  *
- * Usage: bun run scripts/generate-quran-enriched-embeddings.ts [--force] [--batch-size=50] [--model=gemini|bge-m3]
+ * Usage: bun run scripts/generate-quran-enriched-embeddings.ts [--force] [--batch-size=50]
  *
  * Options:
  *   --force          Re-generate embeddings even if they already exist
  *   --batch-size=N   Number of ayahs to process in each batch (default: 50)
- *   --model=gemini|bge-m3   Embedding model to use (default: gemini)
  */
 
 import "../env";
@@ -24,15 +23,12 @@ import { prisma } from "../../src/db";
 import {
   qdrant,
   QDRANT_QURAN_COLLECTION,
-  QDRANT_QURAN_COLLECTION_BGE,
-  GEMINI_DIMENSIONS,
-  BGE_DIMENSIONS,
+  EMBEDDING_DIMENSIONS,
 } from "../../src/qdrant";
 import {
   generateEmbeddings,
   normalizeArabicText,
   truncateForEmbedding,
-  type EmbeddingModel,
 } from "../../src/embeddings";
 import crypto from "crypto";
 
@@ -43,15 +39,9 @@ const BATCH_SIZE = batchSizeArg
   ? parseInt(batchSizeArg.split("=")[1], 10)
   : 50;
 
-// Parse --model flag (gemini or bge-m3)
-const modelArg = process.argv.find((arg) => arg.startsWith("--model="));
-const embeddingModel: EmbeddingModel = modelArg?.split("=")[1] === "bge-m3" ? "bge-m3" : "gemini";
-const EMBEDDING_DIMENSIONS = embeddingModel === "bge-m3" ? BGE_DIMENSIONS : GEMINI_DIMENSIONS;
+const QURAN_COLLECTION = QDRANT_QURAN_COLLECTION;
 
-// Determine collection based on model
-const QURAN_COLLECTION = embeddingModel === "bge-m3" ? QDRANT_QURAN_COLLECTION_BGE : QDRANT_QURAN_COLLECTION;
-
-console.log(`Using embedding model: ${embeddingModel} (${EMBEDDING_DIMENSIONS} dimensions)`);
+console.log(`Using embedding model: gemini (${EMBEDDING_DIMENSIONS} dimensions)`);
 console.log(`Collection: ${QURAN_COLLECTION}`);
 
 /**
@@ -249,7 +239,7 @@ async function processBatch(ayahs: AyahWithTranslation[]): Promise<number> {
   });
 
   // Generate embeddings in batch
-  const embeddings = await generateEmbeddings(texts, embeddingModel);
+  const embeddings = await generateEmbeddings(texts);
 
   // Prepare points for Qdrant
   // Store both original text (for display) and embedded text (for debugging)
@@ -270,7 +260,7 @@ async function processBatch(ayahs: AyahWithTranslation[]): Promise<number> {
       pageNumber: ayah.pageNumber,
       // Embedding metadata - stores EXACTLY what was embedded
       embeddedText: texts[index],
-      embeddingModel: embeddingModel,
+      embeddingModel: "gemini",
     },
   }));
 
