@@ -31,10 +31,10 @@ Base URL: `http://localhost:4000`
 | `GET /api/books/:id/pages` | List pages for a book |
 | `GET /api/books/:id/pages/:page` | Page content |
 | `POST /api/books/:id/pages/:page/translate` | Translate page paragraphs |
-| `GET /api/authors` | List authors |
-| `GET /api/authors/:id` | Author with bibliography |
-| `GET /api/categories` | Category tree |
-| `GET /api/categories/:id` | Category with books |
+| `GET /api/books/authors` | List authors |
+| `GET /api/books/authors/:id` | Author with bibliography |
+| `GET /api/books/categories` | Category tree |
+| `GET /api/books/categories/:id` | Category with books |
 | `GET /api/stats` | Database counts |
 | `POST /api/transcribe` | Audio transcription (Groq Whisper) |
 | `GET /api/health` | Health check |

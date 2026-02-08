@@ -28,9 +28,9 @@ app.use(
 app.route("/api/search", searchRoutes);
 app.route("/api/quran", quranRoutes);
 app.route("/api/hadith", hadithRoutes);
+app.route("/api/books/authors", authorsRoutes);
+app.route("/api/books/categories", categoriesRoutes);
 app.route("/api/books", booksRoutes);
-app.route("/api/authors", authorsRoutes);
-app.route("/api/categories", categoriesRoutes);
 app.route("/api/transcribe", transcribeRoutes);
 app.route("/api/stats", statsRoutes);
 
