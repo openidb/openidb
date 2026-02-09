@@ -4,17 +4,17 @@ import { PaginationQuery, SourceSchema } from "./common";
 // --- Params ---
 
 export const CollectionSlugParam = z.object({
-  slug: z.string().openapi({ example: "bukhari", description: "Collection slug" }),
+  slug: z.string().max(50).openapi({ example: "bukhari", description: "Collection slug" }),
 });
 
 export const CollectionBookParam = z.object({
-  slug: z.string().openapi({ example: "bukhari" }),
+  slug: z.string().max(50).openapi({ example: "bukhari" }),
   bookNumber: z.coerce.number().int().min(1).openapi({ example: 1, description: "Book number within the collection" }),
 });
 
 export const HadithNumberParam = z.object({
-  slug: z.string().openapi({ example: "bukhari" }),
-  number: z.string().openapi({ example: "1", description: "Hadith number" }),
+  slug: z.string().max(50).openapi({ example: "bukhari" }),
+  number: z.string().max(20).openapi({ example: "1", description: "Hadith number" }),
 });
 
 // --- Queries ---

@@ -1,6 +1,7 @@
 import { getCachedExpansion, setCachedExpansion } from "../../query-expansion-cache";
 import { callOpenRouter } from "../../lib/openrouter";
 import { RERANKER_CONFIG } from "./rerankers";
+import { MAX_QUERY_LENGTH } from "./config";
 import type { ExpandedQuery } from "./types";
 
 export function getQueryExpansionModelId(model: string): string {
@@ -63,10 +64,10 @@ IMPORTANT:
     ];
 
     for (let i = 0; i < Math.min(expanded.length, 4); i++) {
-      const expQuery = typeof expanded[i] === 'string' ? expanded[i] : (expanded[i] as any)?.query;
+      const expQuery = typeof expanded[i] === 'string' ? expanded[i] : null;
       if (expQuery && expQuery.trim() && expQuery !== query) {
         results.push({
-          query: expQuery.trim(),
+          query: expQuery.trim().slice(0, MAX_QUERY_LENGTH),
           weight: 0.7,
           reason: `Expanded query ${i + 1}`,
         });

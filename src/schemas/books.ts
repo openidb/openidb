@@ -4,19 +4,19 @@ import { PaginationQuery, SourceSchema } from "./common";
 // --- Params ---
 
 export const BookIdParam = z.object({
-  id: z.string().openapi({ example: "123", description: "Book ID" }),
+  id: z.string().max(50).openapi({ example: "123", description: "Book ID" }),
 });
 
 export const BookPageParam = z.object({
-  id: z.string().openapi({ example: "123" }),
+  id: z.string().max(50).openapi({ example: "123" }),
   page: z.coerce.number().int().min(1).max(999999).openapi({ example: 1, description: "Page number" }),
 });
 
 // --- Queries ---
 
 export const BookListQuery = PaginationQuery.extend({
-  search: z.string().optional().openapi({ example: "الفقه" }),
-  authorId: z.string().optional(),
+  search: z.string().max(500).optional().openapi({ example: "الفقه" }),
+  authorId: z.string().max(50).optional(),
   categoryId: z.coerce.number().int().optional(),
 });
 
@@ -27,8 +27,8 @@ export const BookPagesQuery = PaginationQuery.merge(z.object({
 // --- Body ---
 
 export const TranslateBody = z.object({
-  lang: z.string().default("en").openapi({ example: "en", description: "Target language code" }),
-  model: z.string().default("gemini-flash").openapi({ example: "gemini-flash" }),
+  lang: z.enum(["en", "fr", "id", "ur", "es", "zh", "pt", "ru", "ja", "ko", "it", "bn"]).default("en").openapi({ example: "en", description: "Target language code" }),
+  model: z.enum(["gemini-flash", "gpt-oss-120b"]).default("gemini-flash").openapi({ example: "gemini-flash" }),
 });
 
 // --- Responses ---

@@ -47,9 +47,10 @@ services:
     restart: unless-stopped
     environment:
       discovery.type: single-node
-      # Security disabled for local dev only — enable xpack.security in production
-      xpack.security.enabled: "false"
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
       xpack.security.transport.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD in .env}
       ES_JAVA_OPTS: "-Xms512m -Xmx512m"
     ports:
       - "127.0.0.1:9200:9200"
@@ -103,6 +104,7 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/arabic_texts_library
       QDRANT_URL: http://qdrant:6333
       ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
       NEO4J_URI: bolt://neo4j:7687
       TRUSTED_PROXY: "true"
     depends_on:
