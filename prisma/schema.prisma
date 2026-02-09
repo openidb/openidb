@@ -1,4 +1,4 @@
-// OpenIslamicDB - PostgreSQL Schema
+// OpenIDB - PostgreSQL Schema
 // Source-of-truth database for Islamic texts: books, Quran, hadith
 
 generator client {

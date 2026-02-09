@@ -124,7 +124,7 @@ app.get("/api/health", async (c) => {
 app.doc("/api/openapi.json", {
   openapi: "3.1.0",
   info: {
-    title: "OpenIslamicDB API",
+    title: "OpenIDB API",
     version: "1.0.0",
     description: "API for Islamic texts: Quran, Hadith, and classical Arabic books",
   },
