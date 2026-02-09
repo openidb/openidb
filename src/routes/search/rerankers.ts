@@ -32,10 +32,14 @@ export function formatBookForReranking(result: RankedResult, bookTitle?: string,
 ${result.textSnippet.slice(0, RERANKER_TEXT_LIMIT)}`;
 }
 
+function sanitizeQueryForPrompt(query: string): string {
+  return query.replace(/"/g, "'").replace(/[\r\n]+/g, " ").slice(0, 500);
+}
+
 function buildRerankerPrompt(query: string, docsText: string): string {
   return `You are ranking Arabic/Islamic documents for a search query.
 
-Query: "${query}"
+Query: "${sanitizeQueryForPrompt(query)}"
 
 Documents:
 ${docsText}
@@ -241,7 +245,7 @@ export async function rerankUnifiedRefine(
     const prompt = `You are ranking a MIXED set of Arabic/Islamic documents for a search query.
 The set contains [BOOK] excerpts, [QURAN] verses, and [HADITH] narrations.
 
-Query: "${query}"
+Query: "${sanitizeQueryForPrompt(query)}"
 
 Documents:
 ${docsText}

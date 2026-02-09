@@ -9,7 +9,7 @@ export const BookIdParam = z.object({
 
 export const BookPageParam = z.object({
   id: z.string().openapi({ example: "123" }),
-  page: z.coerce.number().int().min(1).openapi({ example: 1, description: "Page number" }),
+  page: z.coerce.number().int().min(1).max(999999).openapi({ example: 1, description: "Page number" }),
 });
 
 // --- Queries ---

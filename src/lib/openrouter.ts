@@ -39,7 +39,8 @@ export async function callOpenRouter(opts: {
   );
 
   if (!response.ok) {
-    throw new Error(`OpenRouter API error: ${response.statusText}`);
+    console.error(`[openrouter] API error: ${response.status} ${response.statusText}`);
+    throw new Error("Translation service error");
   }
 
   const data = await response.json();

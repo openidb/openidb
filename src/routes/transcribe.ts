@@ -57,7 +57,10 @@ transcribeRoutes.openapi(transcribe, async (c) => {
 
   const bytes = await audio.arrayBuffer();
   const blob = new Blob([bytes], { type: audio.type || "audio/webm" });
-  const fileName = audio.name || "recording.webm";
+  const fileName = (audio.name || "recording.webm")
+    .replace(/[\/\\]/g, "_")
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .slice(0, 255);
 
   const groqForm = new FormData();
   groqForm.append("file", blob, fileName);
@@ -72,12 +75,13 @@ transcribeRoutes.openapi(transcribe, async (c) => {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}` },
         body: groqForm,
+        signal: AbortSignal.timeout(25_000),
       }
     );
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Groq API error:", response.status, errorText);
+      console.error("Groq API error:", response.status, errorText.slice(0, 200));
       return c.json({ error: "Transcription service failed" }, 502);
     }
 
