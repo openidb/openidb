@@ -113,7 +113,7 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       OPENIDB_URL: http://openidb:4000
-      SITE_URL: ${SITE_URL:-https://sanad.openislamicdb.com}
+      SITE_URL: ${SITE_URL:-https://sabeel.dev}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?Set INTERNAL_API_SECRET in .env}
     depends_on:
       openidb:
