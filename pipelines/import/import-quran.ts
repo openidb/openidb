@@ -12,6 +12,7 @@
 
 import "../env";
 import { prisma } from "../../src/db";
+import { hashAyah } from "../../src/utils/content-hash";
 
 const API_BASE = "https://api.alquran.cloud/v1";
 const EDITION = "quran-uthmani";
@@ -186,6 +187,7 @@ async function main() {
       ayahNumber: ayah.numberInSurah,
       textUthmani: ayah.text,
       textPlain: removeDiacritics(ayah.text),
+      contentHash: hashAyah(surahData.number, ayah.numberInSurah, ayah.text),
       juzNumber: ayah.juz,
       pageNumber: ayah.page,
     }));

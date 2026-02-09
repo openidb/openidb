@@ -78,28 +78,31 @@ export async function executeStandardSearch(params: SearchParams): Promise<Stand
   const embTimer = startTimer();
   const embeddingPromise = shouldSkipSemantic
     ? Promise.resolve(undefined)
-    : generateEmbedding(normalizedQuery);
+    : Promise.race([
+        generateEmbedding(normalizedQuery),
+        new Promise<undefined>((_, reject) => setTimeout(() => reject(new Error("Embedding generation timeout")), 5000)),
+      ]).catch(err => { console.error("[SearchEngine] embedding:", err.message); return undefined; });
 
   const kwBooksTimer = startTimer();
   const keywordBooksPromise = (shouldSkipKeyword || !includeBooks)
     ? Promise.resolve([] as RankedResult[])
     : keywordSearchES(query, fetchLimit, bookId, fuzzyOptions)
         .then(res => { timing.keyword.books = kwBooksTimer(); return res; })
-        .catch(() => [] as RankedResult[]);
+        .catch(err => { console.error("[SearchEngine] keyword books:", err.message); return [] as RankedResult[]; });
 
   const kwAyahsTimer = startTimer();
   const keywordAyahsPromise = (shouldSkipKeyword || bookId || !includeQuran)
     ? Promise.resolve([] as AyahRankedResult[])
     : keywordSearchAyahsES(query, fetchLimit, fuzzyOptions)
         .then(res => { timing.keyword.ayahs = kwAyahsTimer(); return res; })
-        .catch(() => [] as AyahRankedResult[]);
+        .catch(err => { console.error("[SearchEngine] keyword ayahs:", err.message); return [] as AyahRankedResult[]; });
 
   const kwHadithsTimer = startTimer();
   const keywordHadithsPromise = (shouldSkipKeyword || bookId || !includeHadith)
     ? Promise.resolve([] as HadithRankedResult[])
     : keywordSearchHadithsES(query, fetchLimit, fuzzyOptions)
         .then(res => { timing.keyword.hadiths = kwHadithsTimer(); return res; })
-        .catch(() => [] as HadithRankedResult[]);
+        .catch(err => { console.error("[SearchEngine] keyword hadiths:", err.message); return [] as HadithRankedResult[]; });
 
   // Wait for embedding
   const queryEmbedding = await embeddingPromise;
@@ -111,7 +114,7 @@ export async function executeStandardSearch(params: SearchParams): Promise<Stand
     ? Promise.resolve([] as RankedResult[])
     : semanticSearch(query, fetchLimit, bookId, similarityCutoff, queryEmbedding)
         .then(res => { timing.semantic.books = semBooksTimer(); return res; })
-        .catch(() => [] as RankedResult[]);
+        .catch(err => { console.error("[SearchEngine] semantic books:", err.message); return [] as RankedResult[]; });
 
   const defaultAyahMeta: AyahSearchMeta = { collection: QDRANT_QURAN_COLLECTION, usedFallback: false, embeddingTechnique: "metadata-translation" };
 
@@ -120,14 +123,14 @@ export async function executeStandardSearch(params: SearchParams): Promise<Stand
     ? Promise.resolve({ results: [] as AyahRankedResult[], meta: defaultAyahMeta })
     : searchAyahsSemantic(query, fetchLimit, similarityCutoff, queryEmbedding)
         .then(res => { timing.semantic.ayahs = semAyahsTimer(); return res; })
-        .catch(() => ({ results: [] as AyahRankedResult[], meta: defaultAyahMeta }));
+        .catch(err => { console.error("[SearchEngine] semantic ayahs:", err.message); return { results: [] as AyahRankedResult[], meta: defaultAyahMeta }; });
 
   const semHadithsTimer = startTimer();
   const semanticHadithsPromise = (mode === "keyword" || bookId || !includeHadith)
     ? Promise.resolve([] as HadithRankedResult[])
     : searchHadithsSemantic(query, fetchLimit, similarityCutoff, queryEmbedding)
         .then(res => { timing.semantic.hadiths = semHadithsTimer(); return res; })
-        .catch(() => [] as HadithRankedResult[]);
+        .catch(err => { console.error("[SearchEngine] semantic hadiths:", err.message); return [] as HadithRankedResult[]; });
 
   // PHASE 3: Wait for all searches and merge
   const [

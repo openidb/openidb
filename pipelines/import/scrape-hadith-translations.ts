@@ -12,6 +12,7 @@
 import "../env";
 import * as cheerio from "cheerio";
 import { prisma } from "../../src/db";
+import { hashHadithTranslation } from "../../src/utils/content-hash";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -192,7 +193,8 @@ function parseEnglishFromHadithPage(html: string, hadithNumber: string): Transla
 // Database Operations
 // ============================================================================
 
-async function storeTranslation(bookId: number, hadithNumber: string, text: string): Promise<void> {
+async function storeTranslation(bookId: number, hadithNumber: string, text: string, collectionSlug: string): Promise<void> {
+  const contentHash = hashHadithTranslation(collectionSlug, hadithNumber, "en", text);
   await prisma.hadithTranslation.upsert({
     where: {
       bookId_hadithNumber_language: {
@@ -203,12 +205,14 @@ async function storeTranslation(bookId: number, hadithNumber: string, text: stri
     },
     update: {
       text,
+      contentHash,
     },
     create: {
       bookId,
       hadithNumber,
       language: "en",
       text,
+      contentHash,
     },
   });
 }
@@ -271,7 +275,7 @@ async function processCollection(collectionSlug: string): Promise<void> {
 
       const translation = parseEnglishFromHadithPage(html, hadithNumber);
       if (translation) {
-        await storeTranslation(book.id, translation.hadithNumber, translation.text);
+        await storeTranslation(book.id, translation.hadithNumber, translation.text, collectionSlug);
         totalTranslations++;
       }
     }
@@ -296,7 +300,7 @@ async function processCollection(collectionSlug: string): Promise<void> {
       console.log(`  Found ${translations.length} translations`);
 
       for (const trans of translations) {
-        await storeTranslation(book.id, trans.hadithNumber, trans.text);
+        await storeTranslation(book.id, trans.hadithNumber, trans.text, collectionSlug);
         totalTranslations++;
       }
     }

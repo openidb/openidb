@@ -1,14 +1,48 @@
-import { Hono } from "hono";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { prisma } from "../db";
-import { parsePagination } from "../utils/pagination";
 import { SOURCES } from "../utils/source-urls";
+import { ErrorResponse } from "../schemas/common";
+import {
+  AuthorListQuery, AuthorIdParam,
+  AuthorListResponse, AuthorDetailResponse,
+} from "../schemas/authors";
 
-export const authorsRoutes = new Hono();
+const listAuthors = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Authors"],
+  summary: "List authors (paginated, searchable)",
+  request: { query: AuthorListQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: AuthorListResponse } },
+      description: "Paginated list of authors",
+    },
+  },
+});
 
-// GET / — list authors (paginated, searchable)
-authorsRoutes.get("/", async (c) => {
-  const search = c.req.query("search");
-  const { limit, offset } = parsePagination(c.req.query("limit"), c.req.query("offset"));
+const getAuthor = createRoute({
+  method: "get",
+  path: "/{id}",
+  tags: ["Authors"],
+  summary: "Get author by ID",
+  request: { params: AuthorIdParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: AuthorDetailResponse } },
+      description: "Author details with books",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Author not found",
+    },
+  },
+});
+
+export const authorsRoutes = new OpenAPIHono();
+
+authorsRoutes.openapi(listAuthors, async (c) => {
+  const { limit, offset, search } = c.req.valid("query");
 
   const where: Record<string, unknown> = {};
   if (search) {
@@ -48,13 +82,12 @@ authorsRoutes.get("/", async (c) => {
     total,
     limit,
     offset,
-    _sources: SOURCES.shamela,
-  });
+    _sources: [...SOURCES.shamela],
+  }, 200);
 });
 
-// GET /:id — get author by id
-authorsRoutes.get("/:id", async (c) => {
-  const id = c.req.param("id");
+authorsRoutes.openapi(getAuthor, async (c) => {
+  const { id } = c.req.valid("param");
 
   const author = await prisma.author.findUnique({
     where: { id },
@@ -89,6 +122,6 @@ authorsRoutes.get("/:id", async (c) => {
 
   return c.json({
     author,
-    _sources: SOURCES.shamela,
-  });
+    _sources: [...SOURCES.shamela],
+  }, 200);
 });

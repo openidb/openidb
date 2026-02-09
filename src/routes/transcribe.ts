@@ -1,14 +1,42 @@
-import { Hono } from "hono";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
+import { ErrorResponse } from "../schemas/common";
+import { TranscribeResponse } from "../schemas/transcribe";
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 
-export const transcribeRoutes = new Hono();
+const transcribe = createRoute({
+  method: "post",
+  path: "/",
+  tags: ["Transcribe"],
+  summary: "Transcribe audio via Groq Whisper",
+  request: {
+    body: {
+      content: { "multipart/form-data": { schema: { type: "object" as const, properties: { audio: { type: "string" as const, format: "binary" } }, required: ["audio"] } } },
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: TranscribeResponse } },
+      description: "Transcribed text",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Invalid request",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Transcription service error",
+    },
+  },
+});
 
-// POST / — transcribe audio via Groq Whisper
-transcribeRoutes.post("/", async (c) => {
+export const transcribeRoutes = new OpenAPIHono();
+
+// FormData validation is manual since Zod can't validate binary uploads
+transcribeRoutes.openapi(transcribe, async (c) => {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
-    return c.json({ error: "Voice transcription is not configured" }, 500);
+    return c.json({ error: "Voice transcription is not configured" }, 400);
   }
 
   let formData: FormData;
@@ -54,7 +82,7 @@ transcribeRoutes.post("/", async (c) => {
     }
 
     const data = await response.json();
-    return c.json({ text: data.text || "" });
+    return c.json({ text: data.text || "" }, 200);
   } catch (err) {
     console.error("Transcription error:", err);
     return c.json({ error: "Transcription service unavailable" }, 502);

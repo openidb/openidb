@@ -1,22 +1,73 @@
-import { Hono } from "hono";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { startTimer } from "../../utils/timing";
 import { QDRANT_QURAN_COLLECTION } from "../../qdrant";
 import { searchAuthors } from "./engines";
-import { parseSearchParams } from "./params";
 import { executeStandardSearch } from "./standard-search";
 import { executeRefineSearch } from "./refine-search";
 import { fetchAndMergeTranslations } from "./translations";
 import { startGraphSearch, resolveGraphContext, fetchBookDetails, formatSearchResults, buildDebugStats } from "./response";
-import type { AyahSearchMeta } from "./types";
+import type { AyahSearchMeta, SearchMode, RerankerType } from "./types";
+import type { SearchParams } from "./params";
+import { ErrorResponse } from "../../schemas/common";
+import { SearchQuery, SearchResponse } from "../../schemas/search";
 
-export const searchRoutes = new Hono();
+const search = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Search"],
+  summary: "Search across Quran, Hadith, and books",
+  request: { query: SearchQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: SearchResponse } },
+      description: "Search results",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Invalid search parameters",
+    },
+    503: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Search index not initialized",
+    },
+  },
+});
 
-searchRoutes.get("/", async (c) => {
-  const parsed = parseSearchParams(c);
-  if ("error" in parsed) {
-    return c.json({ error: parsed.error }, parsed.status as 400);
-  }
-  const params = parsed;
+export const searchRoutes = new OpenAPIHono();
+
+searchRoutes.openapi(search, async (c) => {
+  const validated = c.req.valid("query");
+
+  // Convert validated query to SearchParams
+  const params: SearchParams = {
+    query: validated.q,
+    limit: validated.limit,
+    bookId: validated.bookId || null,
+    mode: validated.mode as SearchMode,
+    includeQuran: validated.includeQuran !== "false",
+    includeHadith: validated.includeHadith !== "false",
+    includeBooks: validated.includeBooks !== "false",
+    reranker: validated.reranker as RerankerType,
+    similarityCutoff: validated.similarityCutoff,
+    bookLimit: validated.bookLimit,
+    fuzzyEnabled: validated.fuzzy !== "false",
+    quranTranslation: validated.quranTranslation,
+    hadithTranslation: validated.hadithTranslation,
+    bookTitleLang: validated.bookTitleLang,
+    bookContentTranslation: validated.bookContentTranslation,
+    refine: validated.refine === "true",
+    refineSimilarityCutoff: validated.refineSimilarityCutoff,
+    refineOriginalWeight: validated.refineOriginalWeight,
+    refineExpandedWeight: validated.refineExpandedWeight,
+    refineBookPerQuery: validated.refineBookPerQuery,
+    refineAyahPerQuery: validated.refineAyahPerQuery,
+    refineHadithPerQuery: validated.refineHadithPerQuery,
+    refineBookRerank: validated.refineBookRerank,
+    refineAyahRerank: validated.refineAyahRerank,
+    refineHadithRerank: validated.refineHadithRerank,
+    queryExpansionModel: validated.queryExpansionModel,
+    includeGraph: validated.includeGraph !== "false",
+  };
 
   try {
     const _timing = {
@@ -120,25 +171,22 @@ searchRoutes.get("/", async (c) => {
         refined: true,
         expandedQueries,
       }),
-    });
+    }, 200);
   } catch (error) {
     console.error("Search error:", error);
 
     if (error instanceof Error) {
       if (error.message.includes("Collection not found")) {
         return c.json(
-          { error: "Search index not initialized", message: "Run the embedding generation script first" },
+          { error: "Search index not initialized" },
           503
         );
       }
     }
 
     return c.json(
-      {
-        error: "Search failed",
-        ...(process.env.NODE_ENV !== "production" && { message: String(error) }),
-      },
-      500
+      { error: "Search failed" },
+      400
     );
   }
 });

@@ -83,10 +83,10 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
     const qEmbedding = shouldSkipSemantic ? undefined : await generateEmbedding(normalizedQ);
 
     const [bookSemantic, bookKeyword] = await Promise.all([
-      semanticSearch(q, refineBookPerQuery, null, refineSimilarityCutoff, qEmbedding).catch(() => []),
+      semanticSearch(q, refineBookPerQuery, null, refineSimilarityCutoff, qEmbedding).catch(err => { console.error("[RefineSearch] search error:", err.message); return []; }),
       shouldSkipKeyword
         ? Promise.resolve([] as RankedResult[])
-        : keywordSearchES(q, refineBookPerQuery, null, fuzzyOptions).catch(() => []),
+        : keywordSearchES(q, refineBookPerQuery, null, fuzzyOptions).catch(err => { console.error("[RefineSearch] search error:", err.message); return []; }),
     ]);
 
     const mergedBooks = mergeWithRRF(bookSemantic, bookKeyword, q);
@@ -97,10 +97,10 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
     if (shouldSkipKeyword) {
       const defaultMeta: AyahSearchMeta = { collection: QDRANT_QURAN_COLLECTION, usedFallback: false, embeddingTechnique: "metadata-translation" };
       ayahResults = includeQuran
-        ? (await searchAyahsSemantic(q, refineAyahPerQuery, refineSimilarityCutoff, qEmbedding).catch(() => ({ results: [], meta: defaultMeta }))).results
+        ? (await searchAyahsSemantic(q, refineAyahPerQuery, refineSimilarityCutoff, qEmbedding).catch(err => { console.error("[RefineSearch] ayah search error:", err.message); return { results: [], meta: defaultMeta }; })).results
         : [];
       hadithResults = includeHadith
-        ? await searchHadithsSemantic(q, refineHadithPerQuery, refineSimilarityCutoff, qEmbedding).catch(() => [])
+        ? await searchHadithsSemantic(q, refineHadithPerQuery, refineSimilarityCutoff, qEmbedding).catch(err => { console.error("[RefineSearch] search error:", err.message); return []; })
         : [];
     } else {
       const refineHybridOptionsWithEmbedding = {
@@ -109,10 +109,10 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
         precomputedEmbedding: qEmbedding,
       };
       ayahResults = includeQuran
-        ? await searchAyahsHybrid(q, refineAyahPerQuery, refineHybridOptionsWithEmbedding).catch(() => [])
+        ? await searchAyahsHybrid(q, refineAyahPerQuery, refineHybridOptionsWithEmbedding).catch(err => { console.error("[RefineSearch] search error:", err.message); return []; })
         : [];
       hadithResults = includeHadith
-        ? await searchHadithsHybrid(q, refineHadithPerQuery, refineHybridOptionsWithEmbedding).catch(() => [])
+        ? await searchHadithsHybrid(q, refineHadithPerQuery, refineHybridOptionsWithEmbedding).catch(err => { console.error("[RefineSearch] search error:", err.message); return []; })
         : [];
     }
 

@@ -42,7 +42,7 @@ export async function startGraphSearch(
   const graphTimer = startTimer();
   return searchEntities(normalizeArabicText(query))
     .then(res => { timingRef.graph = graphTimer(); return res; })
-    .catch(() => emptyGraphResult);
+    .catch(err => { console.error("[SearchEngine] graph search:", err.message); return emptyGraphResult; });
 }
 
 export async function resolveGraphContext(

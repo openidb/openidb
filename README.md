@@ -54,6 +54,44 @@ The `/api/search` endpoint combines multiple retrieval strategies:
 
 Key parameters: `mode` (hybrid/semantic/keyword), `reranker`, `includeQuran`, `includeHadith`, `includeBooks`, `includeGraph`, `refine`.
 
+## Middleware Stack
+
+Requests pass through middleware in this order:
+
+1. **CORS** — Origin validation via `ALLOWED_ORIGINS` env var
+2. **Compression** — Gzip via `hono/compress`
+3. **Timeout** — 30s default, 60s for `/translate` endpoints. Returns 504 on timeout.
+4. **Request logging** — Logs `METHOD /path STATUS duration_ms` per request
+5. **Rate limiting** — Per-IP rate limits on search and transcription endpoints
+6. **Routes** — Application handlers
+
+## Health Check
+
+`GET /api/health` pings all backend services and returns their status:
+
+```json
+{
+  "status": "ok",
+  "services": {
+    "postgres": "ok",
+    "qdrant": "ok",
+    "elasticsearch": "ok"
+  }
+}
+```
+
+Returns HTTP 503 if any service is unreachable.
+
+## Caching
+
+Static data endpoints include `Cache-Control` headers:
+
+| Endpoint pattern | Cache duration |
+|-----------------|---------------|
+| `/api/quran/surahs`, `/api/hadith/collections`, `/api/stats` | 1 hour (`max-age=3600`) |
+| `/api/quran/surahs/:number`, `/api/hadith/collections/:slug` | 24 hours (`max-age=86400`) |
+| `/api/search`, `/api/transcribe` | No cache |
+
 ## Setup
 
 ### Prerequisites
@@ -67,7 +105,7 @@ Key parameters: `mode` (hybrid/semantic/keyword), `reranker`, `includeQuran`, `i
 docker compose up -d
 ```
 
-This starts PostgreSQL (port 5433), Qdrant (port 6333), Elasticsearch (port 9200), and Neo4j (ports 7474/7687).
+This starts PostgreSQL (port 5433), Qdrant (port 6333), Elasticsearch (port 9200), and Neo4j (ports 7474/7687). All services have Docker health checks.
 
 ### 2. Configure environment
 
@@ -79,11 +117,11 @@ Required variables:
 ```
 DATABASE_URL=postgresql://postgres:your_password@localhost:5433/openislamicdb
 POSTGRES_PASSWORD=your_password
+NEO4J_PASSWORD=your_neo4j_password
 QDRANT_URL=http://localhost:6333
 ELASTICSEARCH_URL=http://localhost:9200
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=sanad_graph_123
 ALLOWED_ORIGINS=http://localhost:3000
 ```
 
@@ -91,6 +129,7 @@ Optional:
 ```
 OPENROUTER_API_KEY=    # Gemini embeddings and LLM reranking
 GROQ_API_KEY=          # Voice transcription
+DB_POOL_MAX=20         # PostgreSQL connection pool max (default: 20)
 ```
 
 ### 3. Install dependencies and migrate
@@ -112,10 +151,13 @@ The API starts at http://localhost:4000.
 
 ```
 src/
-├── index.ts                    # Entry point, routes, CORS
-├── db.ts                       # Prisma singleton (PostgreSQL)
+├── index.ts                    # Entry point, middleware stack, routes
+├── db.ts                       # Prisma singleton (PostgreSQL + pool config)
 ├── qdrant.ts                   # Qdrant singleton + collection config
 ├── constants.ts                # Shared constants
+├── middleware/
+│   ├── timeout.ts              # Request timeout (30s/60s)
+│   └── request-logger.ts       # Per-request logging
 ├── embeddings/                 # Gemini embedding client
 ├── graph/                      # Neo4j driver + entity search
 ├── search/                     # Elasticsearch client + keyword search

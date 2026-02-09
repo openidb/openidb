@@ -254,8 +254,8 @@ async function hybridSearchWithRerank<T extends { semanticRank?: number; keyword
   const fetchLimit = Math.min(opts.preRerankLimit, FETCH_LIMIT_CAP);
 
   const [semanticResults, keywordResults] = await Promise.all([
-    opts.semanticSearch(fetchLimit).catch(() => [] as T[]),
-    opts.keywordSearch(fetchLimit).catch(() => [] as T[]),
+    opts.semanticSearch(fetchLimit).catch(err => { console.error("[SearchEngine] hybrid semantic:", err.message); return [] as T[]; }),
+    opts.keywordSearch(fetchLimit).catch(err => { console.error("[SearchEngine] hybrid keyword:", err.message); return [] as T[]; }),
   ]);
 
   const merged = mergeWithRRFGeneric(semanticResults, keywordResults, opts.getKey, opts.query);
@@ -289,7 +289,7 @@ export async function searchAyahsHybrid(
     semanticSearch: (fetchLimit) =>
       searchAyahsSemantic(query, fetchLimit, similarityCutoff, precomputedEmbedding)
         .then(r => r.results)
-        .catch(() => [] as AyahRankedResult[]),
+        .catch(err => { console.error("[SearchEngine] ayah semantic fallback:", err.message); return [] as AyahRankedResult[]; }),
     keywordSearch: (fetchLimit) => keywordSearchAyahsES(query, fetchLimit, { fuzzyFallback }),
     getKey: (a) => `${a.surahNumber}-${a.ayahNumber}`,
     formatForReranking: (a) => formatAyahForReranking(a),

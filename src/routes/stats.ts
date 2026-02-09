@@ -1,10 +1,23 @@
-import { Hono } from "hono";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { prisma } from "../db";
+import { StatsResponse } from "../schemas/stats";
 
-export const statsRoutes = new Hono();
+const getStats = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Stats"],
+  summary: "Get database statistics",
+  responses: {
+    200: {
+      content: { "application/json": { schema: StatsResponse } },
+      description: "Database statistics",
+    },
+  },
+});
 
-// GET / — database stats for homepage
-statsRoutes.get("/", async (c) => {
+export const statsRoutes = new OpenAPIHono();
+
+statsRoutes.openapi(getStats, async (c) => {
   const [bookCount, authorCount, hadithCount, categoryCount] = await Promise.all([
     prisma.book.count(),
     prisma.author.count(),
@@ -12,5 +25,6 @@ statsRoutes.get("/", async (c) => {
     prisma.category.count(),
   ]);
 
-  return c.json({ bookCount, authorCount, hadithCount, categoryCount });
+  c.header("Cache-Control", "public, max-age=3600");
+  return c.json({ bookCount, authorCount, hadithCount, categoryCount }, 200);
 });
