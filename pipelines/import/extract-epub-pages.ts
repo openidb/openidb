@@ -12,6 +12,7 @@
 
 import "../env";
 import { prisma } from "../../src/db";
+import { hashPage } from "../../src/utils/content-hash";
 import JSZip from "jszip";
 import * as fs from "fs";
 import * as path from "path";
@@ -199,6 +200,7 @@ async function extractPagesFromEpub(
     const contentFlags = detectContentFlags(plainText);
 
     // Upsert the page
+    const contentHash = hashPage(bookId, pageNumber, plainText);
     await prisma.page.upsert({
       where: {
         bookId_pageNumber: {
@@ -209,6 +211,7 @@ async function extractPagesFromEpub(
       update: {
         contentPlain: plainText,
         contentHtml: content,
+        contentHash,
         volumeNumber,
         urlPageIndex,
         ...contentFlags,
@@ -220,6 +223,7 @@ async function extractPagesFromEpub(
         urlPageIndex,
         contentPlain: plainText,
         contentHtml: content,
+        contentHash,
         ...contentFlags,
         sourceUrl: `https://shamela.ws/book/${bookId}/${urlPageIndex}`,
       },

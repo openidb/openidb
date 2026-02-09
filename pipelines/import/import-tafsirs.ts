@@ -16,6 +16,7 @@
 
 import "../env";
 import { prisma } from "../../src/db";
+import { hashAyahTafsir } from "../../src/utils/content-hash";
 import {
   fetchTafsirEditions,
   syncTafsirMetadata,
@@ -107,6 +108,7 @@ async function importTafsirEdition(
       editionId: edition.id,
       language: edition.language,
       text: entry.text,
+      contentHash: hashAyahTafsir(entry.surah, entry.ayah, edition.id, entry.text),
     }));
 
     await prisma.ayahTafsir.createMany({

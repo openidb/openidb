@@ -1,8 +1,14 @@
-import { Hono } from "hono";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { prisma } from "../db";
 import { callOpenRouter } from "../lib/openrouter";
 import { generateShamelaBookUrl, generateShamelaPageUrl, SOURCES } from "../utils/source-urls";
-import { parsePagination } from "../utils/pagination";
+import { hashPageTranslation } from "../utils/content-hash";
+import { ErrorResponse } from "../schemas/common";
+import {
+  BookIdParam, BookPageParam,
+  BookListQuery, BookPagesQuery, TranslateBody,
+  BookListResponse, BookDetailResponse, PageDetailResponse, PageListResponse, TranslateResponse,
+} from "../schemas/books";
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en: "English", fr: "French", id: "Indonesian", ur: "Urdu",
@@ -42,14 +48,112 @@ function extractParagraphs(html: string): { index: number; text: string }[] {
   return paragraphs;
 }
 
-export const booksRoutes = new Hono();
+// --- Route definitions ---
 
-// GET / — list books (paginated, searchable)
-booksRoutes.get("/", async (c) => {
-  const search = c.req.query("search");
-  const authorId = c.req.query("authorId");
-  const categoryId = c.req.query("categoryId");
-  const { limit, offset } = parsePagination(c.req.query("limit"), c.req.query("offset"));
+const listBooks = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Books"],
+  summary: "List books (paginated, searchable)",
+  request: { query: BookListQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: BookListResponse } },
+      description: "Paginated list of books",
+    },
+  },
+});
+
+const getBook = createRoute({
+  method: "get",
+  path: "/{id}",
+  tags: ["Books"],
+  summary: "Get book by ID",
+  request: { params: BookIdParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: BookDetailResponse } },
+      description: "Book details",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Book not found",
+    },
+  },
+});
+
+const translatePage = createRoute({
+  method: "post",
+  path: "/{id}/pages/{page}/translate",
+  tags: ["Books"],
+  summary: "Translate page paragraphs",
+  request: {
+    params: BookPageParam,
+    body: {
+      content: { "application/json": { schema: TranslateBody } },
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: TranslateResponse } },
+      description: "Translated paragraphs",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Invalid request",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Page not found",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Translation service error",
+    },
+  },
+});
+
+const getPage = createRoute({
+  method: "get",
+  path: "/{id}/pages/{page}",
+  tags: ["Books"],
+  summary: "Get book page",
+  request: { params: BookPageParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: PageDetailResponse } },
+      description: "Page content",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Page not found",
+    },
+  },
+});
+
+const listPages = createRoute({
+  method: "get",
+  path: "/{id}/pages",
+  tags: ["Books"],
+  summary: "List pages for a book (metadata only)",
+  request: {
+    params: BookIdParam,
+    query: BookPagesQuery,
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: PageListResponse } },
+      description: "Paginated list of pages",
+    },
+  },
+});
+
+// --- Handlers ---
+
+export const booksRoutes = new OpenAPIHono();
+
+booksRoutes.openapi(listBooks, async (c) => {
+  const { limit, offset, search, authorId, categoryId } = c.req.valid("query");
 
   const where: Record<string, unknown> = {};
   if (search) {
@@ -59,7 +163,7 @@ booksRoutes.get("/", async (c) => {
     ];
   }
   if (authorId) where.authorId = authorId;
-  if (categoryId) where.categoryId = parseInt(categoryId, 10);
+  if (categoryId) where.categoryId = categoryId;
 
   const [books, total] = await Promise.all([
     prisma.book.findMany({
@@ -94,13 +198,12 @@ booksRoutes.get("/", async (c) => {
     total,
     limit,
     offset,
-    _sources: SOURCES.shamela,
-  });
+    _sources: [...SOURCES.shamela],
+  }, 200);
 });
 
-// GET /:id — get book by id
-booksRoutes.get("/:id", async (c) => {
-  const id = c.req.param("id");
+booksRoutes.openapi(getBook, async (c) => {
+  const { id } = c.req.valid("param");
 
   const book = await prisma.book.findUnique({
     where: { id },
@@ -149,28 +252,14 @@ booksRoutes.get("/:id", async (c) => {
       ...book,
       shamelaUrl: generateShamelaBookUrl(book.id),
     },
-    _sources: SOURCES.shamela,
-  });
+    _sources: [...SOURCES.shamela],
+  }, 200);
 });
 
-// POST /:id/pages/:page/translate — translate page paragraphs
-booksRoutes.post("/:id/pages/:page/translate", async (c) => {
-  const bookId = c.req.param("id");
-  const pageNumber = parseInt(c.req.param("page"), 10);
+booksRoutes.openapi(translatePage, async (c) => {
+  const { id: bookId, page: pageNumber } = c.req.valid("param");
+  const { lang, model: modelKey } = c.req.valid("json");
 
-  if (isNaN(pageNumber)) {
-    return c.json({ error: "Invalid page number" }, 400);
-  }
-
-  let body: { lang?: string; model?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    body = {};
-  }
-
-  const lang = body.lang || "en";
-  const modelKey = body.model || "gemini-flash";
   const model = MODEL_MAP[modelKey] || MODEL_MAP["gemini-flash"];
 
   const targetLanguage = LANGUAGE_NAMES[lang];
@@ -180,7 +269,7 @@ booksRoutes.post("/:id/pages/:page/translate", async (c) => {
 
   const page = await prisma.page.findUnique({
     where: { bookId_pageNumber: { bookId, pageNumber } },
-    select: { id: true, contentHtml: true },
+    select: { id: true, contentHtml: true, bookId: true, pageNumber: true },
   });
 
   if (!page) {
@@ -192,12 +281,12 @@ booksRoutes.post("/:id/pages/:page/translate", async (c) => {
     where: { pageId_language: { pageId: page.id, language: lang } },
   });
   if (existing) {
-    return c.json({ paragraphs: existing.paragraphs, cached: true });
+    return c.json({ paragraphs: existing.paragraphs as any, contentHash: existing.contentHash, cached: true }, 200);
   }
 
   const paragraphs = extractParagraphs(page.contentHtml);
   if (paragraphs.length === 0) {
-    return c.json({ paragraphs: [] });
+    return c.json({ paragraphs: [] }, 200);
   }
 
   const numberedParagraphs = paragraphs.map((p) => `[${p.index}] ${p.text}`).join("\n\n");
@@ -234,24 +323,19 @@ Respond with ONLY a valid JSON array, no other text. Example format:
     if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
     translations = JSON.parse(cleaned.trim());
   } catch {
-    return c.json({ error: "Failed to parse translation" }, 500);
+    return c.json({ error: "Failed to parse translation" }, 400);
   }
 
+  const contentHash = hashPageTranslation(page.bookId, page.pageNumber, lang, translations);
   await prisma.pageTranslation.create({
-    data: { pageId: page.id, language: lang, model: modelKey, paragraphs: translations },
+    data: { pageId: page.id, language: lang, model: modelKey, paragraphs: translations, contentHash },
   });
 
-  return c.json({ paragraphs: translations, cached: false });
+  return c.json({ paragraphs: translations, contentHash, cached: false }, 200);
 });
 
-// GET /:id/pages/:page — get book page
-booksRoutes.get("/:id/pages/:page", async (c) => {
-  const bookId = c.req.param("id");
-  const pageNumber = parseInt(c.req.param("page"), 10);
-
-  if (isNaN(pageNumber)) {
-    return c.json({ error: "Invalid page number" }, 400);
-  }
+booksRoutes.openapi(getPage, async (c) => {
+  const { id: bookId, page: pageNumber } = c.req.valid("param");
 
   const page = await prisma.page.findUnique({
     where: { bookId_pageNumber: { bookId, pageNumber } },
@@ -262,6 +346,7 @@ booksRoutes.get("/:id/pages/:page", async (c) => {
       printedPageNumber: true,
       contentPlain: true,
       contentHtml: true,
+      contentHash: true,
       hasPoetry: true,
       hasHadith: true,
       hasQuran: true,
@@ -278,14 +363,13 @@ booksRoutes.get("/:id/pages/:page", async (c) => {
       ...page,
       shamelaUrl: generateShamelaPageUrl(bookId, pageNumber),
     },
-    _sources: SOURCES.shamela,
-  });
+    _sources: [...SOURCES.shamela],
+  }, 200);
 });
 
-// GET /:id/pages — list pages for a book (metadata only)
-booksRoutes.get("/:id/pages", async (c) => {
-  const bookId = c.req.param("id");
-  const { limit, offset } = parsePagination(c.req.query("limit"), c.req.query("offset"), 50, 200);
+booksRoutes.openapi(listPages, async (c) => {
+  const { id: bookId } = c.req.valid("param");
+  const { limit, offset } = c.req.valid("query");
 
   const [pages, total] = await Promise.all([
     prisma.page.findMany({
@@ -308,6 +392,6 @@ booksRoutes.get("/:id/pages", async (c) => {
     total,
     limit,
     offset,
-    _sources: SOURCES.shamela,
-  });
+    _sources: [...SOURCES.shamela],
+  }, 200);
 });

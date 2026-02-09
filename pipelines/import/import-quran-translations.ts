@@ -16,6 +16,7 @@
 
 import "../env";
 import { prisma } from "../../src/db";
+import { hashAyahTranslation } from "../../src/utils/content-hash";
 import {
   fetchTranslationEditions,
   syncTranslationMetadata,
@@ -96,13 +97,17 @@ async function importEdition(
   }
 
   // Prepare data
-  const translations = data.quran.map((ayah) => ({
-    surahNumber: ayah.chapter,
-    ayahNumber: ayah.verse,
-    language: edition.language,
-    editionId: edition.id,
-    text: stripHtmlTags(ayah.text),
-  }));
+  const translations = data.quran.map((ayah) => {
+    const cleanText = stripHtmlTags(ayah.text);
+    return {
+      surahNumber: ayah.chapter,
+      ayahNumber: ayah.verse,
+      language: edition.language,
+      editionId: edition.id,
+      text: cleanText,
+      contentHash: hashAyahTranslation(ayah.chapter, ayah.verse, edition.id, cleanText),
+    };
+  });
 
   // Batch insert
   const BATCH_SIZE = 1000;

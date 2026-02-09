@@ -23,18 +23,28 @@ services:
       - "127.0.0.1:6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   elasticsearch:
     image: elasticsearch:8.15.0
     restart: unless-stopped
     environment:
       discovery.type: single-node
+      # Security disabled for local dev only — enable xpack.security in production
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: "-Xms512m -Xmx512m"
     ports:
       - "127.0.0.1:9200:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
+    deploy:
+      resources:
+        limits:
+          memory: 2g
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:9200"]
       interval: 10s
@@ -45,13 +55,18 @@ services:
     image: neo4j:5-community
     restart: unless-stopped
     environment:
-      NEO4J_AUTH: neo4j/sanad_graph_123
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in .env}
       NEO4J_PLUGINS: '["apoc"]'
     ports:
       - "127.0.0.1:7474:7474"
       - "127.0.0.1:7687:7687"
     volumes:
       - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

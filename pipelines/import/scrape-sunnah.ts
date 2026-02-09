@@ -28,6 +28,7 @@ import "../env";
 import * as cheerio from "cheerio";
 import { prisma } from "../../src/db";
 import { normalizeArabicText } from "../../src/embeddings";
+import { hashHadith } from "../../src/utils/content-hash";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -707,6 +708,7 @@ async function processCollection(collectionSlug: string, progress: Progress): Pr
     // Store hadiths in database
     for (const hadith of hadiths) {
       try {
+        const contentHash = hashHadith(collectionSlug, hadith.hadithNumber, hadith.textArabic);
         await prisma.hadith.upsert({
           where: {
             bookId_hadithNumber: {
@@ -717,6 +719,7 @@ async function processCollection(collectionSlug: string, progress: Progress): Pr
           update: {
             textArabic: hadith.textArabic,
             textPlain: normalizeArabicText(hadith.textArabic),
+            contentHash,
             chapterArabic: hadith.chapterArabic,
             chapterEnglish: hadith.chapterEnglish,
           },
@@ -725,6 +728,7 @@ async function processCollection(collectionSlug: string, progress: Progress): Pr
             hadithNumber: hadith.hadithNumber,
             textArabic: hadith.textArabic,
             textPlain: normalizeArabicText(hadith.textArabic),
+            contentHash,
             chapterArabic: hadith.chapterArabic,
             chapterEnglish: hadith.chapterEnglish,
           },
@@ -789,6 +793,7 @@ async function processDirectHadiths(
     const hadith = parseDirectHadithFromHtml(html, hadithNumber);
     if (hadith) {
       try {
+        const contentHash = hashHadith(collectionSlug, hadith.hadithNumber, hadith.textArabic);
         await prisma.hadith.upsert({
           where: {
             bookId_hadithNumber: {
@@ -799,6 +804,7 @@ async function processDirectHadiths(
           update: {
             textArabic: hadith.textArabic,
             textPlain: normalizeArabicText(hadith.textArabic),
+            contentHash,
             chapterArabic: hadith.chapterArabic,
             chapterEnglish: hadith.chapterEnglish,
           },
@@ -807,6 +813,7 @@ async function processDirectHadiths(
             hadithNumber: hadith.hadithNumber,
             textArabic: hadith.textArabic,
             textPlain: normalizeArabicText(hadith.textArabic),
+            contentHash,
             chapterArabic: hadith.chapterArabic,
             chapterEnglish: hadith.chapterEnglish,
           },
@@ -865,6 +872,7 @@ async function processSinglePageCollection(
 
   for (const hadith of hadiths) {
     try {
+      const contentHash = hashHadith(collectionSlug, hadith.hadithNumber, hadith.textArabic);
       await prisma.hadith.upsert({
         where: {
           bookId_hadithNumber: {
@@ -875,6 +883,7 @@ async function processSinglePageCollection(
         update: {
           textArabic: hadith.textArabic,
           textPlain: normalizeArabicText(hadith.textArabic),
+          contentHash,
           chapterArabic: hadith.chapterArabic,
           chapterEnglish: hadith.chapterEnglish,
         },
@@ -883,6 +892,7 @@ async function processSinglePageCollection(
           hadithNumber: hadith.hadithNumber,
           textArabic: hadith.textArabic,
           textPlain: normalizeArabicText(hadith.textArabic),
+          contentHash,
           chapterArabic: hadith.chapterArabic,
           chapterEnglish: hadith.chapterEnglish,
         },

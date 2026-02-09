@@ -206,6 +206,7 @@ model Page {
   // Content
   contentPlain String @db.Text @map("content_plain")
   contentHtml  String @db.Text @map("content_html")
+  contentHash  String? @map("content_hash")
 
   // Formatting Hints
   hasPoetry   Boolean @default(false) @map("has_poetry")
@@ -249,10 +250,11 @@ model PageTranslation {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  pageId     Int    @map("page_id")
-  language   String // "en", "fr", "id", "ur", etc.
-  model      String // "gemini-flash", "gpt-oss-120b" - stored for reference but not part of unique key
-  paragraphs Json   // [{index: 0, translation: "..."}, ...]
+  pageId      Int    @map("page_id")
+  language    String // "en", "fr", "id", "ur", etc.
+  model       String // "gemini-flash", "gpt-oss-120b" - stored for reference but not part of unique key
+  paragraphs  Json   // [{index: 0, translation: "..."}, ...]
+  contentHash String? @map("content_hash")
 
   page Page @relation(fields: [pageId], references: [id], onDelete: Cascade)
 
@@ -284,6 +286,7 @@ model Ayah {
   ayahNumber  Int    @map("ayah_number")
   textUthmani String @db.Text @map("text_uthmani")
   textPlain   String @db.Text @map("text_plain") // For search
+  contentHash String? @map("content_hash")
   juzNumber   Int    @map("juz_number")
   pageNumber  Int    @map("page_number") // Standard mushaf page
 
@@ -301,6 +304,7 @@ model AyahTranslation {
   language    String // "en", "ur", "fr", "id", etc.
   editionId   String @map("edition_id") // "eng-mustafakhattaba", etc.
   text        String @db.Text
+  contentHash String? @map("content_hash")
 
   @@unique([surahNumber, ayahNumber, editionId])
   @@index([surahNumber, ayahNumber])
@@ -317,6 +321,7 @@ model AyahTafsir {
   editionId   String @map("edition_id") // "ar-tafsir-ibn-kathir", "ar-jalalayn"
   language    String @default("ar") // "ar", "en", "bn", etc.
   text        String @db.Text
+  contentHash String? @map("content_hash")
 
   @@unique([surahNumber, ayahNumber, editionId])
   @@index([surahNumber, ayahNumber])
@@ -386,6 +391,7 @@ model Hadith {
   hadithNumber     String      @map("hadith_number")  // String for variants like "8a"
   textArabic       String      @db.Text @map("text_arabic")
   textPlain        String      @db.Text @map("text_plain")  // Diacritics removed for search
+  contentHash      String?     @map("content_hash")
   chapterArabic    String?     @map("chapter_arabic")
   chapterEnglish   String?     @map("chapter_english")
   isChainVariation Boolean     @default(false) @map("is_chain_variation")  // True for hadiths that are only chain variations (no matn)
@@ -403,6 +409,7 @@ model HadithTranslation {
   hadithNumber String @map("hadith_number")
   language     String // "en" for now, expandable later
   text         String @db.Text
+  contentHash  String? @map("content_hash")
 
   @@unique([bookId, hadithNumber, language])
   @@index([bookId, hadithNumber])

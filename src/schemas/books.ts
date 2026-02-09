@@ -1,0 +1,143 @@
+import { z } from "@hono/zod-openapi";
+import { PaginationQuery, SourceSchema } from "./common";
+
+// --- Params ---
+
+export const BookIdParam = z.object({
+  id: z.string().openapi({ example: "123", description: "Book ID" }),
+});
+
+export const BookPageParam = z.object({
+  id: z.string().openapi({ example: "123" }),
+  page: z.coerce.number().int().min(1).openapi({ example: 1, description: "Page number" }),
+});
+
+// --- Queries ---
+
+export const BookListQuery = PaginationQuery.extend({
+  search: z.string().optional().openapi({ example: "الفقه" }),
+  authorId: z.string().optional(),
+  categoryId: z.coerce.number().int().optional(),
+});
+
+export const BookPagesQuery = PaginationQuery.merge(z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50).openapi({ example: 50 }),
+}));
+
+// --- Body ---
+
+export const TranslateBody = z.object({
+  lang: z.string().default("en").openapi({ example: "en", description: "Target language code" }),
+  model: z.string().default("gemini-flash").openapi({ example: "gemini-flash" }),
+});
+
+// --- Responses ---
+
+export const BookSummary = z.object({
+  id: z.string(),
+  titleArabic: z.string(),
+  titleLatin: z.string(),
+  filename: z.string(),
+  totalVolumes: z.number(),
+  totalPages: z.number().nullable(),
+  publicationYearHijri: z.string().nullable(),
+  shamelaUrl: z.string(),
+  author: z.object({
+    id: z.string(),
+    nameArabic: z.string(),
+    nameLatin: z.string(),
+  }).nullable(),
+  category: z.object({
+    id: z.number(),
+    nameArabic: z.string(),
+    nameEnglish: z.string().nullable(),
+  }).nullable(),
+});
+
+export const BookListResponse = z.object({
+  books: z.array(BookSummary),
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+  _sources: z.array(SourceSchema),
+}).openapi("BookList");
+
+export const BookDetailResponse = z.object({
+  book: z.object({
+    id: z.string(),
+    titleArabic: z.string(),
+    titleLatin: z.string(),
+    filename: z.string(),
+    totalVolumes: z.number(),
+    totalPages: z.number().nullable(),
+    publicationYearHijri: z.string().nullable(),
+    publicationYearGregorian: z.string().nullable(),
+    publicationEdition: z.string().nullable(),
+    verificationStatus: z.string().nullable(),
+    descriptionHtml: z.string().nullable(),
+    summary: z.string().nullable(),
+    shamelaUrl: z.string(),
+    author: z.object({
+      id: z.string(),
+      nameArabic: z.string(),
+      nameLatin: z.string(),
+      deathDateHijri: z.string().nullable(),
+    }).nullable(),
+    category: z.object({
+      id: z.number(),
+      nameArabic: z.string(),
+      nameEnglish: z.string().nullable(),
+    }).nullable(),
+    publisher: z.object({
+      name: z.string(),
+      location: z.string().nullable(),
+    }).nullable(),
+    editor: z.object({ name: z.string() }).nullable(),
+    keywords: z.array(z.object({ keyword: z.string() })),
+  }),
+  _sources: z.array(SourceSchema),
+}).openapi("BookDetail");
+
+export const PageSchema = z.object({
+  pageNumber: z.number(),
+  volumeNumber: z.number(),
+  urlPageIndex: z.string().nullable(),
+  printedPageNumber: z.number().nullable(),
+  contentPlain: z.string(),
+  contentHtml: z.string(),
+  contentHash: z.string().nullable(),
+  hasPoetry: z.boolean(),
+  hasHadith: z.boolean(),
+  hasQuran: z.boolean(),
+  sourceUrl: z.string().nullable(),
+  shamelaUrl: z.string(),
+});
+
+export const PageDetailResponse = z.object({
+  page: PageSchema,
+  _sources: z.array(SourceSchema),
+}).openapi("PageDetail");
+
+export const PageListItem = z.object({
+  pageNumber: z.number(),
+  volumeNumber: z.number(),
+  urlPageIndex: z.string().nullable(),
+  printedPageNumber: z.number().nullable(),
+});
+
+export const PageListResponse = z.object({
+  pages: z.array(PageListItem),
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+  _sources: z.array(SourceSchema),
+}).openapi("PageList");
+
+export const TranslateResponse = z.object({
+  paragraphs: z.array(z.object({
+    index: z.number(),
+    translation: z.string(),
+  })),
+  contentHash: z.string().nullable().optional(),
+  cached: z.boolean().optional(),
+}).openapi("TranslateResponse");

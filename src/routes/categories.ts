@@ -1,13 +1,70 @@
-import { Hono } from "hono";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { prisma } from "../db";
-import { parsePagination } from "../utils/pagination";
 import { SOURCES } from "../utils/source-urls";
+import { ErrorResponse } from "../schemas/common";
+import {
+  CategoryListQuery, CategoryIdParam, CategoryDetailQuery,
+  CategoryListResponse, CategoryDetailResponse,
+} from "../schemas/categories";
 
-export const categoriesRoutes = new Hono();
+// --- Category list cache (5-minute TTL) ---
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const categoryCache = new Map<string, { data: unknown; expiry: number }>();
 
-// GET / — get category tree
-categoriesRoutes.get("/", async (c) => {
-  const flat = c.req.query("flat") === "true";
+function getCached<T>(key: string): T | null {
+  const entry = categoryCache.get(key);
+  if (entry && Date.now() < entry.expiry) return entry.data as T;
+  categoryCache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: unknown) {
+  categoryCache.set(key, { data, expiry: Date.now() + CACHE_TTL_MS });
+}
+
+const listCategories = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Categories"],
+  summary: "Get category list (tree or flat)",
+  request: { query: CategoryListQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: CategoryListResponse } },
+      description: "Category list",
+    },
+  },
+});
+
+const getCategory = createRoute({
+  method: "get",
+  path: "/{id}",
+  tags: ["Categories"],
+  summary: "Get category with books",
+  request: {
+    params: CategoryIdParam,
+    query: CategoryDetailQuery,
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: CategoryDetailResponse } },
+      description: "Category details with books",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Category not found",
+    },
+  },
+});
+
+export const categoriesRoutes = new OpenAPIHono();
+
+categoriesRoutes.openapi(listCategories, async (c) => {
+  const { flat } = c.req.valid("query");
+  const cacheKey = flat === "true" ? "flat" : "tree";
+
+  const cached = getCached<{ categories: unknown; _sources: unknown }>(cacheKey);
+  if (cached) return c.json(cached, 200);
 
   const categories = await prisma.category.findMany({
     orderBy: { nameArabic: "asc" },
@@ -21,8 +78,8 @@ categoriesRoutes.get("/", async (c) => {
     },
   });
 
-  if (flat) {
-    return c.json({
+  if (flat === "true") {
+    const result = {
       categories: categories.map((cat) => ({
         id: cat.id,
         code: cat.code,
@@ -31,8 +88,10 @@ categoriesRoutes.get("/", async (c) => {
         parentId: cat.parentId,
         booksCount: cat._count.books,
       })),
-      _sources: SOURCES.shamela,
-    });
+      _sources: [...SOURCES.shamela],
+    };
+    setCache(cacheKey, result);
+    return c.json(result, 200);
   }
 
   // Build tree structure
@@ -68,20 +127,17 @@ categoriesRoutes.get("/", async (c) => {
     }
   }
 
-  return c.json({
+  const result = {
     categories: roots,
-    _sources: SOURCES.shamela,
-  });
+    _sources: [...SOURCES.shamela],
+  };
+  setCache(cacheKey, result);
+  return c.json(result, 200);
 });
 
-// GET /:id — get category with books
-categoriesRoutes.get("/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  if (isNaN(id)) {
-    return c.json({ error: "Invalid category ID" }, 400);
-  }
-
-  const { limit, offset } = parsePagination(c.req.query("limit"), c.req.query("offset"));
+categoriesRoutes.openapi(getCategory, async (c) => {
+  const { id } = c.req.valid("param");
+  const { limit, offset } = c.req.valid("query");
 
   const category = await prisma.category.findUnique({
     where: { id },
@@ -121,6 +177,6 @@ categoriesRoutes.get("/:id", async (c) => {
     total,
     limit,
     offset,
-    _sources: SOURCES.shamela,
-  });
+    _sources: [...SOURCES.shamela],
+  }, 200);
 });

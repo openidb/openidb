@@ -1,12 +1,90 @@
-import { Hono } from "hono";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { prisma } from "../db";
 import { generateSunnahUrl, SOURCES } from "../utils/source-urls";
-import { parsePagination } from "../utils/pagination";
+import { ErrorResponse } from "../schemas/common";
+import {
+  CollectionSlugParam, CollectionBookParam, HadithNumberParam,
+  HadithBookQuery,
+  CollectionListResponse, CollectionDetailResponse, HadithBookResponse, HadithDetailResponse,
+} from "../schemas/hadith";
 
-export const hadithRoutes = new Hono();
+// --- Route definitions ---
 
-// GET /collections — list all collections
-hadithRoutes.get("/collections", async (c) => {
+const listCollections = createRoute({
+  method: "get",
+  path: "/collections",
+  tags: ["Hadith"],
+  summary: "List all hadith collections",
+  responses: {
+    200: {
+      content: { "application/json": { schema: CollectionListResponse } },
+      description: "List of hadith collections",
+    },
+  },
+});
+
+const getCollection = createRoute({
+  method: "get",
+  path: "/collections/{slug}",
+  tags: ["Hadith"],
+  summary: "Get collection with books",
+  request: { params: CollectionSlugParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: CollectionDetailResponse } },
+      description: "Collection details with books",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Collection not found",
+    },
+  },
+});
+
+const getHadithBook = createRoute({
+  method: "get",
+  path: "/collections/{slug}/books/{bookNumber}",
+  tags: ["Hadith"],
+  summary: "Get hadiths in a book",
+  request: {
+    params: CollectionBookParam,
+    query: HadithBookQuery,
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: HadithBookResponse } },
+      description: "Book with hadiths",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Book not found",
+    },
+  },
+});
+
+const getHadith = createRoute({
+  method: "get",
+  path: "/collections/{slug}/{number}",
+  tags: ["Hadith"],
+  summary: "Get hadith by number",
+  request: { params: HadithNumberParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: HadithDetailResponse } },
+      description: "Hadith details",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Hadith not found",
+    },
+  },
+});
+
+// --- Handlers ---
+
+export const hadithRoutes = new OpenAPIHono();
+
+hadithRoutes.openapi(listCollections, async (c) => {
   const collections = await prisma.hadithCollection.findMany({
     orderBy: { id: "asc" },
     select: {
@@ -17,6 +95,7 @@ hadithRoutes.get("/collections", async (c) => {
     },
   });
 
+  c.header("Cache-Control", "public, max-age=3600");
   return c.json({
     collections: collections.map((col) => ({
       slug: col.slug,
@@ -24,13 +103,12 @@ hadithRoutes.get("/collections", async (c) => {
       nameArabic: col.nameArabic,
       booksCount: col._count.books,
     })),
-    _sources: SOURCES.sunnah,
-  });
+    _sources: [...SOURCES.sunnah],
+  }, 200);
 });
 
-// GET /collections/:slug — get collection with books
-hadithRoutes.get("/collections/:slug", async (c) => {
-  const slug = c.req.param("slug");
+hadithRoutes.openapi(getCollection, async (c) => {
+  const { slug } = c.req.valid("param");
 
   const collection = await prisma.hadithCollection.findUnique({
     where: { slug },
@@ -52,6 +130,7 @@ hadithRoutes.get("/collections/:slug", async (c) => {
     return c.json({ error: "Collection not found" }, 404);
   }
 
+  c.header("Cache-Control", "public, max-age=86400");
   return c.json({
     collection: {
       slug: collection.slug,
@@ -65,15 +144,13 @@ hadithRoutes.get("/collections/:slug", async (c) => {
         hadithCount: book._count.hadiths,
       })),
     },
-    _sources: SOURCES.sunnah,
-  });
+    _sources: [...SOURCES.sunnah],
+  }, 200);
 });
 
-// GET /collections/:slug/books/:bookNumber — get hadiths in a book
-hadithRoutes.get("/collections/:slug/books/:bookNumber", async (c) => {
-  const slug = c.req.param("slug");
-  const bookNumber = parseInt(c.req.param("bookNumber"), 10);
-  const { limit, offset } = parsePagination(c.req.query("limit"), c.req.query("offset"), 50, 200);
+hadithRoutes.openapi(getHadithBook, async (c) => {
+  const { slug, bookNumber } = c.req.valid("param");
+  const { limit, offset } = c.req.valid("query");
 
   const book = await prisma.hadithBook.findFirst({
     where: { collection: { slug }, bookNumber },
@@ -99,6 +176,7 @@ hadithRoutes.get("/collections/:slug/books/:bookNumber", async (c) => {
       select: {
         hadithNumber: true,
         textArabic: true,
+        contentHash: true,
         chapterArabic: true,
         chapterEnglish: true,
       },
@@ -115,14 +193,12 @@ hadithRoutes.get("/collections/:slug/books/:bookNumber", async (c) => {
     total,
     limit,
     offset,
-    _sources: SOURCES.sunnah,
-  });
+    _sources: [...SOURCES.sunnah],
+  }, 200);
 });
 
-// GET /collections/:slug/:number — get hadith by number
-hadithRoutes.get("/collections/:slug/:number", async (c) => {
-  const slug = c.req.param("slug");
-  const hadithNumber = c.req.param("number");
+hadithRoutes.openapi(getHadith, async (c) => {
+  const { slug, number: hadithNumber } = c.req.valid("param");
 
   const hadith = await prisma.hadith.findFirst({
     where: {
@@ -133,6 +209,7 @@ hadithRoutes.get("/collections/:slug/:number", async (c) => {
       hadithNumber: true,
       textArabic: true,
       textPlain: true,
+      contentHash: true,
       chapterArabic: true,
       chapterEnglish: true,
       book: {
@@ -155,6 +232,6 @@ hadithRoutes.get("/collections/:slug/:number", async (c) => {
       ...hadith,
       sunnahUrl: generateSunnahUrl(slug, hadith.hadithNumber, hadith.book.bookNumber),
     },
-    _sources: SOURCES.sunnah,
-  });
+    _sources: [...SOURCES.sunnah],
+  }, 200);
 });
