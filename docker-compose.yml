@@ -1,5 +1,8 @@
 services:
+  # ---------- Infrastructure ----------
+
   db:
+    container_name: openidb-postgres
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -17,6 +20,7 @@ services:
       retries: 5
 
   qdrant:
+    container_name: openidb-qdrant
     image: qdrant/qdrant:latest
     restart: unless-stopped
     ports:
@@ -30,6 +34,7 @@ services:
       retries: 5
 
   elasticsearch:
+    container_name: openidb-elasticsearch
     image: elasticsearch:8.15.0
     restart: unless-stopped
     environment:
@@ -52,6 +57,7 @@ services:
       retries: 5
 
   neo4j:
+    container_name: openidb-neo4j
     image: neo4j:5-community
     restart: unless-stopped
     environment:
@@ -67,6 +73,50 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ---------- Application ----------
+
+  openidb:
+    container_name: openidb-api
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:4000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/openislamicdb
+      QDRANT_URL: http://qdrant:6333
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      NEO4J_URI: bolt://neo4j:7687
+      TRUSTED_PROXY: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sabeel:
+    container_name: sabeel-web
+    build:
+      context: ../sabeel/web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      OPENIDB_URL: http://openidb:4000
+      SITE_URL: ${SITE_URL:-https://sanad.openislamicdb.com}
+    depends_on:
+      openidb:
+        condition: service_healthy
 
 volumes:
   postgres_data:
