@@ -157,7 +157,9 @@ src/
 ├── constants.ts                # Shared constants
 ├── middleware/
 │   ├── timeout.ts              # Request timeout (30s/60s)
-│   └── request-logger.ts       # Per-request logging
+│   ├── request-logger.ts       # Per-request logging
+│   ├── rate-limit.ts           # Per-IP rate limits
+│   └── internal-auth.ts        # Internal service auth
 ├── embeddings/                 # Gemini embedding client
 ├── graph/                      # Neo4j driver + entity search
 ├── search/                     # Elasticsearch client + keyword search
@@ -179,12 +181,13 @@ src/
 │   ├── categories.ts
 │   ├── transcribe.ts
 │   └── stats.ts
-├── utils/
-│   ├── pagination.ts
-│   ├── source-urls.ts
-│   └── timing.ts
-└── prisma/
-    └── schema.prisma           # Database schema
+└── utils/
+    ├── pagination.ts
+    ├── source-urls.ts
+    └── timing.ts
+
+prisma/
+└── schema.prisma               # Database schema
 ```
 
 ## Data Import
