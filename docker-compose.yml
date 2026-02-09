@@ -3,7 +3,7 @@ services:
 
   db:
     container_name: openidb-postgres
-    image: dhi.io/postgres:16-debian13
+    image: dhi.io/postgres:18-debian13
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -150,7 +150,7 @@ services:
 volumes:
   postgres_data:
     external: true
-    name: arabic_texts_pgdata
+    name: arabic_texts_pgdata_18
   qdrant_data:
     external: true
     name: book-viewer_qdrant_data
