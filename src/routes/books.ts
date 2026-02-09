@@ -321,7 +321,21 @@ Respond with ONLY a valid JSON array, no other text. Example format:
     if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
     else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
     if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
-    translations = JSON.parse(cleaned.trim());
+    const parsed = JSON.parse(cleaned.trim());
+    if (!Array.isArray(parsed)) {
+      return c.json({ error: "Failed to parse translation" }, 400);
+    }
+    for (const item of parsed.slice(0, paragraphs.length)) {
+      if (
+        typeof item?.index === "number" && Number.isFinite(item.index) &&
+        typeof item?.translation === "string"
+      ) {
+        translations.push({ index: item.index, translation: item.translation.slice(0, 5000) });
+      }
+    }
+    if (translations.length === 0) {
+      return c.json({ error: "Failed to parse translation" }, 400);
+    }
   } catch {
     return c.json({ error: "Failed to parse translation" }, 400);
   }

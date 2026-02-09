@@ -13,6 +13,10 @@ services:
       - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -21,12 +25,16 @@ services:
 
   qdrant:
     container_name: openidb-qdrant
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.13.2
     restart: unless-stopped
     ports:
       - "127.0.0.1:6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    deploy:
+      resources:
+        limits:
+          memory: 2g
     healthcheck:
       test: ["CMD-SHELL", "bash -c ':> /dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
@@ -68,6 +76,10 @@ services:
       - "127.0.0.1:7687:7687"
     volumes:
       - neo4j_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 2g
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
       interval: 10s
@@ -98,6 +110,10 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     healthcheck:
       test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:4000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
       interval: 10s
@@ -115,6 +131,10 @@ services:
       OPENIDB_URL: http://openidb:4000
       SITE_URL: ${SITE_URL:-https://sabeel.dev}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?Set INTERNAL_API_SECRET in .env}
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     depends_on:
       openidb:
         condition: service_healthy

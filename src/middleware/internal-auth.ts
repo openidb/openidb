@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import type { Context, Next } from "hono";
 
 /**
@@ -14,7 +15,13 @@ export async function internalAuth(c: Context, next: Next) {
   }
 
   const provided = c.req.header("x-internal-secret");
-  if (!provided || provided !== secret) {
+  if (!provided) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+
+  const secretBuf = Buffer.from(secret);
+  const providedBuf = Buffer.from(provided);
+  if (secretBuf.length !== providedBuf.length || !crypto.timingSafeEqual(secretBuf, providedBuf)) {
     return c.json({ error: "Forbidden" }, 403);
   }
 

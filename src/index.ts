@@ -11,7 +11,7 @@ import { categoriesRoutes } from "./routes/categories";
 import { searchRoutes } from "./routes/search";
 import { transcribeRoutes } from "./routes/transcribe";
 import { statsRoutes } from "./routes/stats";
-import { searchRateLimit, expensiveRateLimit } from "./middleware/rate-limit";
+import { apiRateLimit, searchRateLimit, expensiveRateLimit } from "./middleware/rate-limit";
 import { timeout } from "./middleware/timeout";
 import { requestLogger } from "./middleware/request-logger";
 import { internalAuth } from "./middleware/internal-auth";
@@ -56,6 +56,9 @@ app.use("/api/books/:id/pages/:page/translate", timeout(60_000));
 
 // Request logging
 app.use("/api/*", requestLogger);
+
+// General rate limit for all API endpoints (120 req/min)
+app.use("/api/*", apiRateLimit);
 
 // Rate limiting for expensive endpoints
 app.use("/api/search/*", searchRateLimit);
@@ -115,6 +118,11 @@ app.get("/api/health", async (c) => {
 
   const allOk = Object.values(checks).every((v) => v === "ok");
   const status = allOk ? "ok" : "degraded";
+
+  // In production, only expose aggregate status without service topology
+  if (process.env.NODE_ENV === "production") {
+    return c.json({ status }, allOk ? 200 : 503);
+  }
 
   return c.json(
     { status, services: checks, ...(errors.length > 0 && { errors }) },

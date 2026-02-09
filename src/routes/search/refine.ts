@@ -18,7 +18,7 @@ export async function expandQueryWithCacheInfo(query: string, model: string = "g
   try {
     const prompt = `You are a search query expansion expert for an Arabic/Islamic text search engine covering Quran, Hadith, and classical Islamic books.
 
-User Query: "${query}"
+User Query: "${query.replace(/"/g, "'").replace(/[\r\n]+/g, " ").slice(0, 500)}"
 
 Your task: Generate 4 alternative search queries that will help find what the user is actually looking for.
 
