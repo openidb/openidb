@@ -18,11 +18,12 @@ const getStats = createRoute({
 export const statsRoutes = new OpenAPIHono();
 
 statsRoutes.openapi(getStats, async (c) => {
+  const safeCount = (p: Promise<number>) => p.catch(() => 0);
   const [bookCount, authorCount, hadithCount, categoryCount] = await Promise.all([
-    prisma.book.count(),
-    prisma.author.count(),
-    prisma.hadith.count(),
-    prisma.category.count(),
+    safeCount(prisma.book.count()),
+    safeCount(prisma.author.count()),
+    safeCount(prisma.hadith.count()),
+    safeCount(prisma.category.count()),
   ]);
 
   c.header("Cache-Control", "public, max-age=3600");
