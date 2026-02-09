@@ -2,11 +2,11 @@ import { z } from "@hono/zod-openapi";
 import { PaginationQuery, SourceSchema } from "./common";
 
 export const AuthorListQuery = PaginationQuery.extend({
-  search: z.string().optional().openapi({ example: "ابن تيمية" }),
+  search: z.string().max(500).optional().openapi({ example: "ابن تيمية" }),
 });
 
 export const AuthorIdParam = z.object({
-  id: z.string().openapi({ example: "123", description: "Author ID" }),
+  id: z.string().max(50).openapi({ example: "123", description: "Author ID" }),
 });
 
 export const AuthorSummary = z.object({

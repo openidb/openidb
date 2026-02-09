@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 import { compress } from "hono/compress";
+import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { apiReference } from "@scalar/hono-api-reference";
 import { quranRoutes } from "./routes/quran";
@@ -49,6 +50,11 @@ app.use(
 
 // Response compression
 app.use("/api/*", compress());
+
+// Request body size limits (before parsing/validation)
+app.use("/api/transcribe", bodyLimit({ maxSize: 26 * 1024 * 1024 })); // 26MB for audio upload
+app.use("/api/transcribe/*", bodyLimit({ maxSize: 26 * 1024 * 1024 }));
+app.use("/api/*", bodyLimit({ maxSize: 1024 * 1024 })); // 1MB default for JSON
 
 // Request timeout (30s default, 60s for translate)
 app.use("/api/*", timeout(30_000));
@@ -107,8 +113,13 @@ app.get("/api/health", async (c) => {
 
   // Elasticsearch
   const esUrl = process.env.ELASTICSEARCH_URL || "http://localhost:9200";
+  const esPassword = process.env.ELASTIC_PASSWORD || "";
+  const esAuth = btoa(`elastic:${esPassword}`);
   try {
-    const res = await fetch(esUrl, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(esUrl, {
+      signal: AbortSignal.timeout(3000),
+      headers: { Authorization: `Basic ${esAuth}` },
+    });
     checks.elasticsearch = res.ok ? "ok" : "error";
     if (!res.ok) errors.push(`elasticsearch: HTTP ${res.status}`);
   } catch (err) {

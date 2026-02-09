@@ -9,12 +9,12 @@ export const SurahNumberParam = z.object({
 
 export const TafsirPathParam = z.object({
   surah: z.coerce.number().int().min(1).max(114).openapi({ example: 1 }),
-  ayah: z.coerce.number().int().min(1).openapi({ example: 1 }),
+  ayah: z.coerce.number().int().min(1).max(286).openapi({ example: 1 }),
 });
 
 export const TranslationPathParam = z.object({
   surah: z.coerce.number().int().min(1).max(114).openapi({ example: 1 }),
-  ayah: z.coerce.number().int().min(1).openapi({ example: 1 }),
+  ayah: z.coerce.number().int().min(1).max(286).openapi({ example: 1 }),
 });
 
 // --- Queries ---
@@ -23,26 +23,26 @@ export const AyahsQuery = PaginationQuery.merge(z.object({
   limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
   surah: z.coerce.number().int().min(1).max(114).optional().openapi({ example: 1 }),
   juz: z.coerce.number().int().min(1).max(30).optional().openapi({ example: 1 }),
-  page: z.coerce.number().int().min(1).optional(),
+  page: z.coerce.number().int().min(1).max(2000).optional(),
 }));
 
 export const TafsirListQuery = z.object({
-  language: z.string().optional().openapi({ example: "ar" }),
+  language: z.string().max(10).optional().openapi({ example: "ar" }),
 });
 
 export const TafsirQuery = z.object({
-  source: z.string().optional(),
-  editionId: z.string().optional(),
-  language: z.string().optional(),
+  source: z.string().max(100).optional(),
+  editionId: z.string().max(100).optional(),
+  language: z.string().max(10).optional(),
 });
 
 export const TranslationListQuery = z.object({
-  language: z.string().optional().openapi({ example: "en" }),
+  language: z.string().max(10).optional().openapi({ example: "en" }),
 });
 
 export const TranslationQuery = z.object({
-  language: z.string().optional(),
-  editionId: z.string().optional(),
+  language: z.string().max(10).optional(),
+  editionId: z.string().max(100).optional(),
 });
 
 // --- Responses ---

@@ -15,6 +15,10 @@ export const elasticsearch =
   globalForES.elasticsearch ??
   new Client({
     node: process.env.ELASTICSEARCH_URL || "http://localhost:9200",
+    auth: {
+      username: "elastic",
+      password: process.env.ELASTIC_PASSWORD || "",
+    },
   });
 
 if (process.env.NODE_ENV !== "production") {

@@ -8,7 +8,7 @@ import {
 export const SearchQuery = z.object({
   q: z.string().min(1).max(MAX_QUERY_LENGTH).openapi({ example: "الصلاة", description: "Search query" }),
   limit: z.coerce.number().int().min(1).max(MAX_SEARCH_LIMIT).default(DEFAULT_SEARCH_LIMIT).openapi({ example: 20 }),
-  bookId: z.string().optional().openapi({ description: "Filter to a specific book" }),
+  bookId: z.string().max(50).optional().openapi({ description: "Filter to a specific book" }),
   mode: z.enum(["hybrid", "semantic", "keyword"]).default("hybrid").openapi({ example: "hybrid" }),
   includeQuran: z.enum(["true", "false"]).default("true"),
   includeHadith: z.enum(["true", "false"]).default("true"),
@@ -17,10 +17,10 @@ export const SearchQuery = z.object({
   similarityCutoff: z.coerce.number().min(0).max(1).default(DEFAULT_SIMILARITY_CUTOFF),
   bookLimit: z.coerce.number().int().min(MIN_BOOK_LIMIT).max(MAX_BOOK_LIMIT).default(DEFAULT_BOOK_LIMIT),
   fuzzy: z.enum(["true", "false"]).default("true"),
-  quranTranslation: z.string().default("none"),
-  hadithTranslation: z.string().default("none"),
-  bookTitleLang: z.string().optional(),
-  bookContentTranslation: z.string().default("none"),
+  quranTranslation: z.string().max(100).default("none"),
+  hadithTranslation: z.string().max(100).default("none"),
+  bookTitleLang: z.string().max(10).optional(),
+  bookContentTranslation: z.string().max(100).default("none"),
   refine: z.enum(["true", "false"]).default("false"),
   refineSimilarityCutoff: z.coerce.number().min(0).max(1).default(REFINE_SIMILARITY_CUTOFF),
   refineOriginalWeight: z.coerce.number().min(0.5).max(1.0).default(1.0),
@@ -31,7 +31,7 @@ export const SearchQuery = z.object({
   refineBookRerank: z.coerce.number().int().min(5).max(40).default(20),
   refineAyahRerank: z.coerce.number().int().min(5).max(25).default(12),
   refineHadithRerank: z.coerce.number().int().min(5).max(25).default(15),
-  queryExpansionModel: z.string().default("gemini-flash"),
+  queryExpansionModel: z.string().max(50).default("gemini-flash"),
   includeGraph: z.enum(["true", "false"]).default("true"),
 });
 
