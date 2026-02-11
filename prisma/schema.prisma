@@ -138,8 +138,9 @@ model Book {
   supervisor         String?
 
   // Content
-  descriptionHtml String? @db.Text @map("description_html")
-  summary         String? @db.Text
+  descriptionHtml  String? @db.Text @map("description_html")
+  summary          String? @db.Text
+  tableOfContents  Json?   @map("table_of_contents") // [{title, level, page}]
 
   // File Reference
   filename String // EPUB filename
