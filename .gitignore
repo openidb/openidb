@@ -6,3 +6,5 @@ dist/
 .cache/
 data/books/*.epub
 *.log
+pipelines/import/turath-catalog.json
+pipelines/import/batch-progress.json

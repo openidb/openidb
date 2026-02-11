@@ -281,9 +281,17 @@ booksRoutes.openapi(getBook, async (c) => {
     return c.json({ error: "Book not found" }, 404);
   }
 
+  // Get the last printed page number for accurate pagination display
+  const lastPage = await prisma.page.findFirst({
+    where: { bookId: id, printedPageNumber: { not: null } },
+    orderBy: { printedPageNumber: "desc" },
+    select: { printedPageNumber: true },
+  });
+
   return c.json({
     book: {
       ...book,
+      maxPrintedPage: lastPage?.printedPageNumber ?? book.totalPages,
       displayDate: book.author?.deathDateHijri || book.publicationYearHijri || null,
       displayDateType: book.author?.deathDateHijri ? "death" : book.publicationYearHijri ? "publication" : null,
       referenceUrl: generateBookReferenceUrl(book.id),

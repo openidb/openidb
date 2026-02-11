@@ -637,7 +637,477 @@ function sleep(ms: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Main import logic
+// Exported result type
+// ---------------------------------------------------------------------------
+
+export interface ImportResult {
+  bookId: string;
+  title: string;
+  pages: number;
+  success: boolean;
+  error?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Core import logic (reusable)
+// ---------------------------------------------------------------------------
+
+export async function importTurathBook(
+  id: string,
+  options: { dryRun?: boolean; skipTransliteration?: boolean } = {},
+): Promise<ImportResult> {
+  const { dryRun = false, skipTransliteration = false } = options;
+
+  try {
+    // 1. Fetch book metadata from Turath API
+    console.log("Step 1: Fetching metadata...");
+    const bookApi = await fetchJson<TurathBookApiResponse>(
+      `https://api.turath.io/book?id=${id}`,
+      "book metadata"
+    );
+
+    // 2. Fetch content file
+    console.log("\nStep 2: Fetching content...");
+    const content = await fetchTurathContent(id);
+
+    // 3. Fetch author
+    console.log("\nStep 3: Fetching author...");
+    const authorInfo = await fetchTurathAuthor(content.meta.author_id);
+    const authorName = authorInfo.name || bookApi.meta.name;
+
+    // Build volume label map
+    const volLabelMap = buildVolumeLabelMap(content.vol_labels);
+
+    // Compute stats
+    const volumeSet = new Set<number>();
+    for (const page of content.pages) {
+      volumeSet.add(resolveVolumeNumber(page.vol, volLabelMap));
+    }
+    const totalVolumes = Math.max(1, volumeSet.size);
+
+    // Parse structured info field
+    const parsedInfo = parseInfoField(content.meta.info);
+
+    // Compute printed flag fallback for pageAlignmentNote
+    const printedFlagNote = content.meta.printed === 1
+      ? "ترقيم الكتاب موافق للمطبوع"
+      : content.meta.printed === 3
+      ? "الكتاب مرقم آليا"
+      : null;
+
+    // Parse PDF links
+    const pdfLinks = content.meta.pdf_links as { root?: string; files?: string[] } | null;
+
+    // Map volume label → 0-based index into pdf_links.files.
+    // When pdf_links.files has more entries than vol_labels, the extra
+    // prefix files are intros/covers (e.g. "تقديم") — offset accordingly.
+    const pdfFileCount = pdfLinks?.files?.length ?? 0;
+    const pdfOffset = Math.max(0, pdfFileCount - content.vol_labels.length);
+    const volLabelToIndex = new Map<string, number>();
+    for (let i = 0; i < content.vol_labels.length; i++) {
+      volLabelToIndex.set(content.vol_labels[i], i + pdfOffset);
+    }
+
+    // Print summary
+    console.log("\n" + "-".repeat(60));
+    console.log("Book Summary:");
+    console.log(`  Title:           ${content.meta.name}`);
+    console.log(`  Author:          ${authorName} (ID: ${content.meta.author_id})`);
+    console.log(`  Category ID:     ${content.meta.cat_id} (${getCategoryName(content.meta.cat_id)})`);
+    console.log(`  Pages:           ${content.pages.length}`);
+    console.log(`  Volumes:         ${totalVolumes} (labels: ${content.vol_labels.join(", ") || "none"})`);
+    console.log(`  TOC entries:     ${content.toc.length}`);
+    console.log(`  Printed match:   ${content.meta.printed === 1 ? "yes" : content.meta.printed === 3 ? "auto-numbered" : `unknown (${content.meta.printed})`}`);
+    console.log(`  Type:            ${content.meta.type}`);
+
+    // Show parsed info fields
+    console.log("\nParsed Info:");
+    console.log(`  Editor:          ${parsedInfo.editor || "(none)"}`);
+    console.log(`  Publisher:       ${parsedInfo.publisher || "(none)"}`);
+    console.log(`  Pub. location:   ${parsedInfo.publisherLocation || "(none)"}`);
+    console.log(`  Edition:         ${parsedInfo.edition || "(none)"}`);
+    console.log(`  Year (Hijri):    ${parsedInfo.yearHijri || "(none)"}`);
+    console.log(`  Year (Greg.):    ${parsedInfo.yearGregorian || "(none)"}`);
+    console.log(`  Alignment note:  ${parsedInfo.pageAlignmentNote || printedFlagNote || "(none)"}`);
+    console.log(`  Verified:        ${parsedInfo.isVerified ? "yes (محقق)" : "no"}`);
+    if (parsedInfo.authorBirthDateHijri) {
+      console.log(`  Author birth:    ${parsedInfo.authorBirthDateHijri} هـ`);
+    }
+    if (parsedInfo.authorDeathDateHijri) {
+      console.log(`  Author death:    ${parsedInfo.authorDeathDateHijri} هـ`);
+    }
+
+    // Show PDF info
+    if (pdfLinks?.files && pdfLinks.files.length > 0) {
+      const sampleUrl = buildPdfUrl(pdfLinks, 0);
+      console.log(`\n  PDF files:       ${pdfLinks.files.length}`);
+      console.log(`  PDF root:        ${pdfLinks.root || "(full URLs in files)"}`);
+      if (sampleUrl) console.log(`  PDF sample:      ${sampleUrl.substring(0, 80)}${sampleUrl.length > 80 ? "..." : ""}`);
+    }
+
+    console.log("-".repeat(60));
+
+    // Show first few pages as preview
+    if (content.pages.length > 0) {
+      console.log("\nPage preview (first 3):");
+      for (const page of content.pages.slice(0, 3)) {
+        const plain = stripHtml(page.text);
+        console.log(`  [vol=${page.vol}, page=${page.page}] ${plain.substring(0, 80)}...`);
+      }
+    }
+
+    if (dryRun) {
+      console.log("\n[DRY RUN] No database changes made.");
+      return { bookId: id, title: content.meta.name, pages: content.pages.length, success: true };
+    }
+
+    // 4. Transliterate title and author name
+    console.log("\nStep 4: Transliterating...");
+    let titleLatin: string;
+    let authorNameLatin: string;
+
+    if (skipTransliteration) {
+      titleLatin = transliterateBasic(content.meta.name);
+      authorNameLatin = transliterateBasic(authorName);
+      console.log(`  Title (basic):   ${titleLatin}`);
+      console.log(`  Author (basic):  ${authorNameLatin}`);
+    } else {
+      try {
+        const batch = await transliterateArabicBatch([content.meta.name, authorName]);
+        titleLatin = batch.get(content.meta.name) || transliterateBasic(content.meta.name);
+        authorNameLatin = batch.get(authorName) || transliterateBasic(authorName);
+        console.log(`  Title (AI):      ${titleLatin}`);
+        console.log(`  Author (AI):     ${authorNameLatin}`);
+      } catch (error) {
+        console.warn("  AI transliteration failed, using basic:", error);
+        titleLatin = transliterateBasic(content.meta.name);
+        authorNameLatin = transliterateBasic(authorName);
+      }
+    }
+
+    // 5. Ensure Author in DB
+    console.log("\nStep 5: Ensuring author...");
+    const authorId = String(content.meta.author_id);
+
+    const existingAuthor = await prisma.author.findUnique({ where: { id: authorId } });
+
+    // Resolve birth/death dates: prefer API data, fallback to parsed info field
+    const authorBirthDate = authorInfo.birthDateHijri || parsedInfo.authorBirthDateHijri || null;
+    const authorDeathDate = authorInfo.deathDateHijri || parsedInfo.authorDeathDateHijri || null;
+
+    if (existingAuthor) {
+      console.log(`  Author already exists: ${existingAuthor.nameArabic}`);
+      // Update biography and dates if we have new data and existing is empty
+      const authorUpdates: Record<string, string> = {};
+      if (authorInfo.biography && !existingAuthor.biography) {
+        authorUpdates.biography = authorInfo.biography;
+        authorUpdates.biographySource = "turath.io";
+      }
+      if (authorBirthDate && !existingAuthor.birthDateHijri) {
+        authorUpdates.birthDateHijri = authorBirthDate;
+      }
+      if (authorDeathDate && !existingAuthor.deathDateHijri) {
+        authorUpdates.deathDateHijri = authorDeathDate;
+      }
+      if (!existingAuthor.biographySource && authorInfo.biography) {
+        authorUpdates.biographySource = "turath.io";
+      }
+      if (Object.keys(authorUpdates).length > 0) {
+        await prisma.author.update({
+          where: { id: authorId },
+          data: authorUpdates,
+        });
+        console.log(`  Updated author fields: ${Object.keys(authorUpdates).join(", ")}`);
+      }
+    } else {
+      // Ensure nameLatin is unique
+      let finalNameLatin = authorNameLatin;
+      let counter = 1;
+      while (await prisma.author.findUnique({ where: { nameLatin: finalNameLatin } })) {
+        finalNameLatin = `${authorNameLatin} (${counter})`;
+        counter++;
+      }
+
+      await prisma.author.create({
+        data: {
+          id: authorId,
+          nameArabic: authorName,
+          nameLatin: finalNameLatin,
+          biography: authorInfo.biography,
+          biographySource: authorInfo.biography ? "turath.io" : null,
+          deathDateHijri: authorDeathDate,
+          birthDateHijri: authorBirthDate,
+        },
+      });
+      console.log(`  Created author: ${authorName} -> ${finalNameLatin}`);
+    }
+
+    // 6. Ensure Category in DB
+    console.log("\nStep 6: Ensuring category...");
+    const categoryName = getCategoryName(content.meta.cat_id);
+
+    let categoryRecord = await prisma.category.findUnique({ where: { nameArabic: categoryName } });
+    if (!categoryRecord) {
+      categoryRecord = await prisma.category.create({
+        data: {
+          nameArabic: categoryName,
+          code: String(content.meta.cat_id),
+        },
+      });
+      console.log(`  Created category: ${categoryName}`);
+    } else {
+      console.log(`  Category exists: ${categoryName}`);
+    }
+
+    // 7. Build TOC with mapped page numbers
+    console.log("\nStep 7: Building table of contents...");
+
+    // Map printed page number → 0-based index in pages array, then +1 for overview page offset
+    const printedToIndex = new Map<number, number>();
+    for (let i = 0; i < content.pages.length; i++) {
+      const pp = content.pages[i].page;
+      if (!printedToIndex.has(pp)) {
+        printedToIndex.set(pp, i + 1); // +1 because page 0 is the overview page
+      }
+    }
+
+    const tocEntries = content.toc.map((entry) => ({
+      title: entry.title,
+      level: entry.level,
+      page: printedToIndex.get(entry.page) ?? (entry.page + 1),
+    }));
+
+    console.log(`  ${tocEntries.length} TOC entries mapped`);
+
+    // 7b. Ensure Publisher in DB
+    let publisherRecord: { id: number } | null = null;
+    if (parsedInfo.publisher) {
+      console.log("\nStep 7b: Ensuring publisher...");
+      publisherRecord = await prisma.publisher.upsert({
+        where: { name: parsedInfo.publisher },
+        create: { name: parsedInfo.publisher, location: parsedInfo.publisherLocation },
+        update: {},
+      });
+      console.log(`  Publisher: ${parsedInfo.publisher} (ID: ${publisherRecord.id})`);
+    }
+
+    // 7c. Ensure Editor in DB
+    let editorRecord: { id: number } | null = null;
+    if (parsedInfo.editor) {
+      console.log("\nStep 7c: Ensuring editor...");
+      editorRecord = await prisma.editor.upsert({
+        where: { name: parsedInfo.editor },
+        create: { name: parsedInfo.editor },
+        update: {},
+      });
+      console.log(`  Editor: ${parsedInfo.editor} (ID: ${editorRecord.id})`);
+    }
+
+    // 8. Create Book record
+    console.log("\nStep 8: Creating book...");
+    const bookId = String(id);
+
+    const displayTitle = content.meta.name;
+
+    const bookData = {
+      titleArabic: displayTitle,
+      titleLatin,
+      authorId,
+      categoryId: categoryRecord.id,
+      totalVolumes,
+      totalPages: content.pages.length + 1, // +1 for overview page
+      publisherId: publisherRecord?.id || null,
+      editorId: editorRecord?.id || null,
+      publicationYearHijri: parsedInfo.yearHijri || null,
+      publicationYearGregorian: parsedInfo.yearGregorian || null,
+      publicationEdition: parsedInfo.edition || null,
+      publicationLocation: parsedInfo.publisherLocation || null,
+      pageAlignmentNote: parsedInfo.pageAlignmentNote || printedFlagNote || null,
+      verificationStatus: parsedInfo.isVerified ? "محقق" : null,
+      descriptionHtml: content.meta.info_long || content.meta.info || null,
+      summary: content.meta.info_long ? content.meta.info : null,
+      filename: `turath:${id}`,
+      tableOfContents: tocEntries.length > 0 ? tocEntries : undefined,
+    };
+
+    const existingBook = await prisma.book.findUnique({ where: { id: bookId } });
+    if (existingBook) {
+      console.log(`  Book already exists (ID: ${bookId}). Updating metadata...`);
+      await prisma.book.update({ where: { id: bookId }, data: bookData });
+    } else {
+      await prisma.book.create({ data: { id: bookId, ...bookData } });
+      console.log(`  Created book: ${displayTitle}`);
+    }
+
+    // 9. Download & store PDFs in RustFS
+    const pdfKeyMap = new Map<number, string>(); // volumeIndex → RustFS key
+    const failedVolumes = new Set<number>(); // track volumes whose download failed
+
+    if (pdfLinks?.files && pdfLinks.files.length > 0) {
+      console.log("\nStep 9: Downloading PDFs to RustFS...");
+      await ensureBucket();
+
+      let downloaded = 0;
+      let skippedPdfs = 0;
+      let failedPdfs = 0;
+
+      for (let vi = 0; vi < pdfLinks.files.length; vi++) {
+        const sourceUrl = buildPdfUrl(pdfLinks, vi);
+        if (!sourceUrl) {
+          failedPdfs++;
+          failedVolumes.add(vi);
+          continue;
+        }
+
+        const key = `${bookId}/${vi}.pdf`;
+
+        if (await isAlreadyUploaded(key)) {
+          pdfKeyMap.set(vi, key);
+          skippedPdfs++;
+          continue;
+        }
+
+        const result = await downloadAndStorePdf(sourceUrl, bookId, vi);
+        if (result) {
+          pdfKeyMap.set(vi, result);
+          downloaded++;
+        } else {
+          failedPdfs++;
+          failedVolumes.add(vi);
+        }
+
+        // Rate limit: 1s delay between downloads to avoid archive.org throttling
+        if (vi < pdfLinks.files.length - 1) {
+          await sleep(1000);
+        }
+      }
+
+      console.log(`  Downloaded: ${downloaded}, Skipped (cached): ${skippedPdfs}, Failed: ${failedPdfs}`);
+    } else {
+      console.log("\nStep 9: No PDF links available, skipping PDF download.");
+    }
+
+    // 10. Create Page records
+    console.log("\nStep 10: Importing pages...");
+
+    // Delete existing pages for this book (clean re-import)
+    const deletedCount = await prisma.page.deleteMany({ where: { bookId } });
+    if (deletedCount.count > 0) {
+      console.log(`  Deleted ${deletedCount.count} existing pages`);
+    }
+
+    // 10a. Generate and insert overview page (pageNumber=0)
+    const overviewContent = generateOverviewContent(
+      displayTitle,
+      authorName,
+      content.meta.info,
+      content.toc,
+    );
+    const overviewPlain = stripHtml(overviewContent);
+    const overviewHash = hashPage(bookId, 0, overviewPlain);
+
+    await prisma.page.create({
+      data: {
+        bookId,
+        pageNumber: 0,
+        urlPageIndex: "i",
+        volumeNumber: 0,
+        printedPageNumber: null,
+        contentHtml: overviewContent,
+        contentPlain: overviewPlain,
+        contentHash: overviewHash,
+        sourceUrl: `https://app.turath.io/book/${id}`,
+      },
+    });
+    console.log("  Created overview page (page 0)");
+
+    // 10b. Batch insert content pages (shifted by +1: first content page = pageNumber 1)
+    const BATCH_SIZE = 100;
+    let importedPages = 1; // Start at 1 counting the overview page
+    let skippedPages = 0;
+
+    for (let i = 0; i < content.pages.length; i += BATCH_SIZE) {
+      const batch = content.pages.slice(i, i + BATCH_SIZE);
+      const pageRecords = [];
+
+      for (let j = 0; j < batch.length; j++) {
+        const page = batch[j];
+        const pageNumber = i + j + 1; // +1 offset for overview page
+        const volumeNumber = resolveVolumeNumber(page.vol, volLabelMap);
+        const printedPageNumber = page.page;
+
+        const contentHtml = page.text;
+        const contentPlain = stripHtml(contentHtml);
+
+        // Skip empty pages
+        if (contentPlain.length < 5) {
+          skippedPages++;
+          continue;
+        }
+
+        const contentHash = hashPage(bookId, pageNumber, contentPlain);
+        const contentFlags = detectContentFlags(contentPlain);
+
+        // Resolve PDF: prefer RustFS key, fallback to source URL only if download wasn't attempted/failed
+        const volumeIndex = volLabelToIndex.get(page.vol) ?? 0;
+        const pagePdfUrl = pdfKeyMap.get(volumeIndex)
+          ?? (failedVolumes.has(volumeIndex) ? null : buildPdfUrl(pdfLinks, volumeIndex));
+
+        pageRecords.push({
+          bookId,
+          pageNumber,
+          volumeNumber,
+          printedPageNumber,
+          contentPlain,
+          contentHtml,
+          contentHash,
+          sourceUrl: `https://app.turath.io/book/${id}#p-${printedPageNumber}`,
+          pdfUrl: pagePdfUrl,
+          ...contentFlags,
+        });
+      }
+
+      if (pageRecords.length > 0) {
+        await prisma.page.createMany({ data: pageRecords });
+        importedPages += pageRecords.length;
+      }
+
+      // Progress
+      const pct = Math.round(((i + batch.length) / content.pages.length) * 100);
+      process.stdout.write(`\r  Progress: ${importedPages} pages imported (${pct}%)`);
+    }
+
+    console.log(); // newline after progress
+
+    // 11. Print final summary
+    console.log("\n" + "=".repeat(60));
+    console.log("IMPORT COMPLETE");
+    console.log("=".repeat(60));
+    console.log(`  Book:            ${content.meta.name}`);
+    console.log(`  ID:              ${bookId}`);
+    console.log(`  Author:          ${authorName} (ID: ${authorId})`);
+    console.log(`  Category:        ${categoryName}`);
+    console.log(`  Pages imported:  ${importedPages} (incl. overview)`);
+    console.log(`  Pages skipped:   ${skippedPages} (empty)`);
+    console.log(`  Volumes:         ${totalVolumes}`);
+    console.log(`  PDFs stored:     ${pdfKeyMap.size}`);
+    console.log(`  Title (Latin):   ${titleLatin}`);
+    if (publisherRecord) console.log(`  Publisher:       ${parsedInfo.publisher}`);
+    if (editorRecord) console.log(`  Editor:          ${parsedInfo.editor}`);
+    if (parsedInfo.yearHijri) console.log(`  Year (Hijri):    ${parsedInfo.yearHijri}`);
+    if (parsedInfo.yearGregorian) console.log(`  Year (Greg.):    ${parsedInfo.yearGregorian}`);
+    console.log("=".repeat(60));
+
+    return { bookId, title: content.meta.name, pages: importedPages, success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`  Import failed for book ${id}: ${message}`);
+    return { bookId: id, title: "", pages: 0, success: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CLI entry point
 // ---------------------------------------------------------------------------
 
 async function main() {
@@ -651,444 +1121,25 @@ async function main() {
   console.log("=".repeat(60));
   console.log();
 
-  // 1. Fetch book metadata from Turath API
-  console.log("Step 1: Fetching metadata...");
-  const bookApi = await fetchJson<TurathBookApiResponse>(
-    `https://api.turath.io/book?id=${id}`,
-    "book metadata"
-  );
+  const result = await importTurathBook(id, { dryRun, skipTransliteration });
 
-  // 2. Fetch content file
-  console.log("\nStep 2: Fetching content...");
-  const content = await fetchTurathContent(id);
-
-  // 3. Fetch author
-  console.log("\nStep 3: Fetching author...");
-  const authorInfo = await fetchTurathAuthor(content.meta.author_id);
-  const authorName = authorInfo.name || bookApi.meta.name;
-
-  // Build volume label map
-  const volLabelMap = buildVolumeLabelMap(content.vol_labels);
-
-  // Compute stats
-  const volumeSet = new Set<number>();
-  for (const page of content.pages) {
-    volumeSet.add(resolveVolumeNumber(page.vol, volLabelMap));
+  if (!result.success) {
+    process.exit(1);
   }
-  const totalVolumes = Math.max(1, volumeSet.size);
-
-  // Parse structured info field
-  const parsedInfo = parseInfoField(content.meta.info);
-
-  // Compute printed flag fallback for pageAlignmentNote
-  const printedFlagNote = content.meta.printed === 1
-    ? "ترقيم الكتاب موافق للمطبوع"
-    : content.meta.printed === 3
-    ? "الكتاب مرقم آليا"
-    : null;
-
-  // Parse PDF links
-  const pdfLinks = content.meta.pdf_links as { root?: string; files?: string[] } | null;
-
-  // Map volume label → 0-based index for PDF lookup
-  const volLabelToIndex = new Map<string, number>();
-  for (let i = 0; i < content.vol_labels.length; i++) {
-    volLabelToIndex.set(content.vol_labels[i], i);
-  }
-
-  // Print summary
-  console.log("\n" + "-".repeat(60));
-  console.log("Book Summary:");
-  console.log(`  Title:           ${content.meta.name}`);
-  console.log(`  Author:          ${authorName} (ID: ${content.meta.author_id})`);
-  console.log(`  Category ID:     ${content.meta.cat_id} (${getCategoryName(content.meta.cat_id)})`);
-  console.log(`  Pages:           ${content.pages.length}`);
-  console.log(`  Volumes:         ${totalVolumes} (labels: ${content.vol_labels.join(", ") || "none"})`);
-  console.log(`  TOC entries:     ${content.toc.length}`);
-  console.log(`  Printed match:   ${content.meta.printed === 1 ? "yes" : content.meta.printed === 3 ? "auto-numbered" : `unknown (${content.meta.printed})`}`);
-  console.log(`  Type:            ${content.meta.type}`);
-
-  // Show parsed info fields
-  console.log("\nParsed Info:");
-  console.log(`  Editor:          ${parsedInfo.editor || "(none)"}`);
-  console.log(`  Publisher:       ${parsedInfo.publisher || "(none)"}`);
-  console.log(`  Pub. location:   ${parsedInfo.publisherLocation || "(none)"}`);
-  console.log(`  Edition:         ${parsedInfo.edition || "(none)"}`);
-  console.log(`  Year (Hijri):    ${parsedInfo.yearHijri || "(none)"}`);
-  console.log(`  Year (Greg.):    ${parsedInfo.yearGregorian || "(none)"}`);
-  console.log(`  Alignment note:  ${parsedInfo.pageAlignmentNote || printedFlagNote || "(none)"}`);
-  console.log(`  Verified:        ${parsedInfo.isVerified ? "yes (محقق)" : "no"}`);
-  if (parsedInfo.authorBirthDateHijri) {
-    console.log(`  Author birth:    ${parsedInfo.authorBirthDateHijri} هـ`);
-  }
-  if (parsedInfo.authorDeathDateHijri) {
-    console.log(`  Author death:    ${parsedInfo.authorDeathDateHijri} هـ`);
-  }
-
-  // Show PDF info
-  if (pdfLinks?.files && pdfLinks.files.length > 0) {
-    const sampleUrl = buildPdfUrl(pdfLinks, 0);
-    console.log(`\n  PDF files:       ${pdfLinks.files.length}`);
-    console.log(`  PDF root:        ${pdfLinks.root || "(full URLs in files)"}`);
-    if (sampleUrl) console.log(`  PDF sample:      ${sampleUrl.substring(0, 80)}${sampleUrl.length > 80 ? "..." : ""}`);
-  }
-
-  console.log("-".repeat(60));
-
-  // Show first few pages as preview
-  if (content.pages.length > 0) {
-    console.log("\nPage preview (first 3):");
-    for (const page of content.pages.slice(0, 3)) {
-      const plain = stripHtml(page.text);
-      console.log(`  [vol=${page.vol}, page=${page.page}] ${plain.substring(0, 80)}...`);
-    }
-  }
-
-  if (dryRun) {
-    console.log("\n[DRY RUN] No database changes made.");
-    return;
-  }
-
-  // 4. Transliterate title and author name
-  console.log("\nStep 4: Transliterating...");
-  let titleLatin: string;
-  let authorNameLatin: string;
-
-  if (skipTransliteration) {
-    titleLatin = transliterateBasic(content.meta.name);
-    authorNameLatin = transliterateBasic(authorName);
-    console.log(`  Title (basic):   ${titleLatin}`);
-    console.log(`  Author (basic):  ${authorNameLatin}`);
-  } else {
-    try {
-      const batch = await transliterateArabicBatch([content.meta.name, authorName]);
-      titleLatin = batch.get(content.meta.name) || transliterateBasic(content.meta.name);
-      authorNameLatin = batch.get(authorName) || transliterateBasic(authorName);
-      console.log(`  Title (AI):      ${titleLatin}`);
-      console.log(`  Author (AI):     ${authorNameLatin}`);
-    } catch (error) {
-      console.warn("  AI transliteration failed, using basic:", error);
-      titleLatin = transliterateBasic(content.meta.name);
-      authorNameLatin = transliterateBasic(authorName);
-    }
-  }
-
-  // 5. Ensure Author in DB
-  console.log("\nStep 5: Ensuring author...");
-  const authorId = String(content.meta.author_id);
-
-  const existingAuthor = await prisma.author.findUnique({ where: { id: authorId } });
-
-  // Resolve birth/death dates: prefer API data, fallback to parsed info field
-  const authorBirthDate = authorInfo.birthDateHijri || parsedInfo.authorBirthDateHijri || null;
-  const authorDeathDate = authorInfo.deathDateHijri || parsedInfo.authorDeathDateHijri || null;
-
-  if (existingAuthor) {
-    console.log(`  Author already exists: ${existingAuthor.nameArabic}`);
-    // Update biography and dates if we have new data and existing is empty
-    const authorUpdates: Record<string, string> = {};
-    if (authorInfo.biography && !existingAuthor.biography) {
-      authorUpdates.biography = authorInfo.biography;
-      authorUpdates.biographySource = "turath.io";
-    }
-    if (authorBirthDate && !existingAuthor.birthDateHijri) {
-      authorUpdates.birthDateHijri = authorBirthDate;
-    }
-    if (authorDeathDate && !existingAuthor.deathDateHijri) {
-      authorUpdates.deathDateHijri = authorDeathDate;
-    }
-    if (!existingAuthor.biographySource && authorInfo.biography) {
-      authorUpdates.biographySource = "turath.io";
-    }
-    if (Object.keys(authorUpdates).length > 0) {
-      await prisma.author.update({
-        where: { id: authorId },
-        data: authorUpdates,
-      });
-      console.log(`  Updated author fields: ${Object.keys(authorUpdates).join(", ")}`);
-    }
-  } else {
-    // Ensure nameLatin is unique
-    let finalNameLatin = authorNameLatin;
-    let counter = 1;
-    while (await prisma.author.findUnique({ where: { nameLatin: finalNameLatin } })) {
-      finalNameLatin = `${authorNameLatin} (${counter})`;
-      counter++;
-    }
-
-    await prisma.author.create({
-      data: {
-        id: authorId,
-        nameArabic: authorName,
-        nameLatin: finalNameLatin,
-        biography: authorInfo.biography,
-        biographySource: authorInfo.biography ? "turath.io" : null,
-        deathDateHijri: authorDeathDate,
-        birthDateHijri: authorBirthDate,
-      },
-    });
-    console.log(`  Created author: ${authorName} -> ${finalNameLatin}`);
-  }
-
-  // 6. Ensure Category in DB
-  console.log("\nStep 6: Ensuring category...");
-  const categoryName = getCategoryName(content.meta.cat_id);
-
-  let categoryRecord = await prisma.category.findUnique({ where: { nameArabic: categoryName } });
-  if (!categoryRecord) {
-    categoryRecord = await prisma.category.create({
-      data: {
-        nameArabic: categoryName,
-        code: String(content.meta.cat_id),
-      },
-    });
-    console.log(`  Created category: ${categoryName}`);
-  } else {
-    console.log(`  Category exists: ${categoryName}`);
-  }
-
-  // 7. Build TOC with mapped page numbers
-  console.log("\nStep 7: Building table of contents...");
-
-  // Map printed page number → 0-based index in pages array, then +1 for overview page offset
-  const printedToIndex = new Map<number, number>();
-  for (let i = 0; i < content.pages.length; i++) {
-    const pp = content.pages[i].page;
-    if (!printedToIndex.has(pp)) {
-      printedToIndex.set(pp, i + 1); // +1 because page 0 is the overview page
-    }
-  }
-
-  const tocEntries = content.toc.map((entry) => ({
-    title: entry.title,
-    level: entry.level,
-    page: printedToIndex.get(entry.page) ?? (entry.page + 1),
-  }));
-
-  console.log(`  ${tocEntries.length} TOC entries mapped`);
-
-  // 7b. Ensure Publisher in DB
-  let publisherRecord: { id: number } | null = null;
-  if (parsedInfo.publisher) {
-    console.log("\nStep 7b: Ensuring publisher...");
-    publisherRecord = await prisma.publisher.upsert({
-      where: { name: parsedInfo.publisher },
-      create: { name: parsedInfo.publisher, location: parsedInfo.publisherLocation },
-      update: {},
-    });
-    console.log(`  Publisher: ${parsedInfo.publisher} (ID: ${publisherRecord.id})`);
-  }
-
-  // 7c. Ensure Editor in DB
-  let editorRecord: { id: number } | null = null;
-  if (parsedInfo.editor) {
-    console.log("\nStep 7c: Ensuring editor...");
-    editorRecord = await prisma.editor.upsert({
-      where: { name: parsedInfo.editor },
-      create: { name: parsedInfo.editor },
-      update: {},
-    });
-    console.log(`  Editor: ${parsedInfo.editor} (ID: ${editorRecord.id})`);
-  }
-
-  // 8. Create Book record
-  console.log("\nStep 8: Creating book...");
-  const bookId = String(id);
-
-  const displayTitle = content.meta.name;
-
-  const bookData = {
-    titleArabic: displayTitle,
-    titleLatin,
-    authorId,
-    categoryId: categoryRecord.id,
-    totalVolumes,
-    totalPages: content.pages.length + 1, // +1 for overview page
-    publisherId: publisherRecord?.id || null,
-    editorId: editorRecord?.id || null,
-    publicationYearHijri: parsedInfo.yearHijri || null,
-    publicationYearGregorian: parsedInfo.yearGregorian || null,
-    publicationEdition: parsedInfo.edition || null,
-    publicationLocation: parsedInfo.publisherLocation || null,
-    pageAlignmentNote: parsedInfo.pageAlignmentNote || printedFlagNote || null,
-    verificationStatus: parsedInfo.isVerified ? "محقق" : null,
-    descriptionHtml: content.meta.info_long || content.meta.info || null,
-    summary: content.meta.info_long ? content.meta.info : null,
-    filename: `turath:${id}`,
-    tableOfContents: tocEntries.length > 0 ? tocEntries : undefined,
-  };
-
-  const existingBook = await prisma.book.findUnique({ where: { id: bookId } });
-  if (existingBook) {
-    console.log(`  Book already exists (ID: ${bookId}). Updating metadata...`);
-    await prisma.book.update({ where: { id: bookId }, data: bookData });
-  } else {
-    await prisma.book.create({ data: { id: bookId, ...bookData } });
-    console.log(`  Created book: ${displayTitle}`);
-  }
-
-  // 9. Download & store PDFs in RustFS
-  const pdfKeyMap = new Map<number, string>(); // volumeIndex → RustFS key
-
-  if (pdfLinks?.files && pdfLinks.files.length > 0) {
-    console.log("\nStep 9: Downloading PDFs to RustFS...");
-    await ensureBucket();
-
-    let downloaded = 0;
-    let skippedPdfs = 0;
-    let failedPdfs = 0;
-
-    for (let vi = 0; vi < pdfLinks.files.length; vi++) {
-      const sourceUrl = buildPdfUrl(pdfLinks, vi);
-      if (!sourceUrl) {
-        failedPdfs++;
-        continue;
-      }
-
-      const key = `${bookId}/${vi}.pdf`;
-
-      if (await isAlreadyUploaded(key)) {
-        pdfKeyMap.set(vi, key);
-        skippedPdfs++;
-        continue;
-      }
-
-      const result = await downloadAndStorePdf(sourceUrl, bookId, vi);
-      if (result) {
-        pdfKeyMap.set(vi, result);
-        downloaded++;
-      } else {
-        failedPdfs++;
-      }
-
-      // Rate limit: 1s delay between downloads to avoid archive.org throttling
-      if (vi < pdfLinks.files.length - 1) {
-        await sleep(1000);
-      }
-    }
-
-    console.log(`  Downloaded: ${downloaded}, Skipped (cached): ${skippedPdfs}, Failed: ${failedPdfs}`);
-  } else {
-    console.log("\nStep 9: No PDF links available, skipping PDF download.");
-  }
-
-  // 10. Create Page records
-  console.log("\nStep 10: Importing pages...");
-
-  // Delete existing pages for this book (clean re-import)
-  const deletedCount = await prisma.page.deleteMany({ where: { bookId } });
-  if (deletedCount.count > 0) {
-    console.log(`  Deleted ${deletedCount.count} existing pages`);
-  }
-
-  // 9a. Generate and insert overview page (pageNumber=0)
-  const overviewContent = generateOverviewContent(
-    displayTitle,
-    authorName,
-    content.meta.info,
-    content.toc,
-  );
-  const overviewPlain = stripHtml(overviewContent);
-  const overviewHash = hashPage(bookId, 0, overviewPlain);
-
-  await prisma.page.create({
-    data: {
-      bookId,
-      pageNumber: 0,
-      urlPageIndex: "i",
-      volumeNumber: 0,
-      printedPageNumber: null,
-      contentHtml: overviewContent,
-      contentPlain: overviewPlain,
-      contentHash: overviewHash,
-      sourceUrl: `https://app.turath.io/book/${id}`,
-    },
-  });
-  console.log("  Created overview page (page 0)");
-
-  // 9b. Batch insert content pages (shifted by +1: first content page = pageNumber 1)
-  const BATCH_SIZE = 100;
-  let importedPages = 1; // Start at 1 counting the overview page
-  let skippedPages = 0;
-
-  for (let i = 0; i < content.pages.length; i += BATCH_SIZE) {
-    const batch = content.pages.slice(i, i + BATCH_SIZE);
-    const pageRecords = [];
-
-    for (let j = 0; j < batch.length; j++) {
-      const page = batch[j];
-      const pageNumber = i + j + 1; // +1 offset for overview page
-      const volumeNumber = resolveVolumeNumber(page.vol, volLabelMap);
-      const printedPageNumber = page.page;
-
-      const contentHtml = page.text;
-      const contentPlain = stripHtml(contentHtml);
-
-      // Skip empty pages
-      if (contentPlain.length < 5) {
-        skippedPages++;
-        continue;
-      }
-
-      const contentHash = hashPage(bookId, pageNumber, contentPlain);
-      const contentFlags = detectContentFlags(contentPlain);
-
-      // Resolve PDF: prefer RustFS key, fallback to source URL
-      const volumeIndex = volLabelToIndex.get(page.vol) ?? 0;
-      const pagePdfUrl = pdfKeyMap.get(volumeIndex) ?? buildPdfUrl(pdfLinks, volumeIndex);
-
-      pageRecords.push({
-        bookId,
-        pageNumber,
-        volumeNumber,
-        printedPageNumber,
-        contentPlain,
-        contentHtml,
-        contentHash,
-        sourceUrl: `https://app.turath.io/book/${id}#p-${printedPageNumber}`,
-        pdfUrl: pagePdfUrl,
-        ...contentFlags,
-      });
-    }
-
-    if (pageRecords.length > 0) {
-      await prisma.page.createMany({ data: pageRecords });
-      importedPages += pageRecords.length;
-    }
-
-    // Progress
-    const pct = Math.round(((i + batch.length) / content.pages.length) * 100);
-    process.stdout.write(`\r  Progress: ${importedPages} pages imported (${pct}%)`);
-  }
-
-  console.log(); // newline after progress
-
-  // 11. Print final summary
-  console.log("\n" + "=".repeat(60));
-  console.log("IMPORT COMPLETE");
-  console.log("=".repeat(60));
-  console.log(`  Book:            ${content.meta.name}`);
-  console.log(`  ID:              ${bookId}`);
-  console.log(`  Author:          ${authorName} (ID: ${authorId})`);
-  console.log(`  Category:        ${categoryName}`);
-  console.log(`  Pages imported:  ${importedPages} (incl. overview)`);
-  console.log(`  Pages skipped:   ${skippedPages} (empty)`);
-  console.log(`  Volumes:         ${totalVolumes}`);
-  console.log(`  PDFs stored:     ${pdfKeyMap.size}`);
-  console.log(`  Title (Latin):   ${titleLatin}`);
-  if (publisherRecord) console.log(`  Publisher:       ${parsedInfo.publisher}`);
-  if (editorRecord) console.log(`  Editor:          ${parsedInfo.editor}`);
-  if (parsedInfo.yearHijri) console.log(`  Year (Hijri):    ${parsedInfo.yearHijri}`);
-  if (parsedInfo.yearGregorian) console.log(`  Year (Greg.):    ${parsedInfo.yearGregorian}`);
-  console.log("=".repeat(60));
 }
 
-main()
-  .catch((e) => {
-    console.error("\nImport failed:");
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+// Only run main() when executed directly (not imported)
+const isDirectRun = process.argv[1]?.endsWith("/import-turath.ts") ||
+  process.argv[1]?.endsWith("/import-turath.js");
+
+if (isDirectRun) {
+  main()
+    .catch((e) => {
+      console.error("\nImport failed:");
+      console.error(e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
