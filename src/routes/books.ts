@@ -182,7 +182,7 @@ const getPagePdf = createRoute({
 export const booksRoutes = new OpenAPIHono();
 
 booksRoutes.openapi(listBooks, async (c) => {
-  const { limit, offset, search, authorId, categoryId } = c.req.valid("query");
+  const { limit, offset, search, authorId, categoryId, century } = c.req.valid("query");
 
   const where: Record<string, unknown> = {};
   if (search) {
@@ -192,33 +192,108 @@ booksRoutes.openapi(listBooks, async (c) => {
     ];
   }
   if (authorId) where.authorId = authorId;
-  if (categoryId) where.categoryId = categoryId;
+  if (categoryId) {
+    const ids = categoryId.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0);
+    if (ids.length === 1) where.categoryId = ids[0];
+    else if (ids.length > 1) where.categoryId = { in: ids };
+  }
+  if (century) {
+    const centuries = century.split(",").map(Number).filter((n) => n >= 1 && n <= 15);
+    if (centuries.length > 0) {
+      // For each century N, author death year is in range ((N-1)*100, N*100]
+      const authorIds = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM authors
+        WHERE death_date_hijri ~ '^[0-9]+$'
+          AND CEIL(CAST(death_date_hijri AS DOUBLE PRECISION) / 100)::int = ANY(${centuries})
+      `;
+      const ids = authorIds.map((a) => a.id);
+      if (ids.length > 0) {
+        where.authorId = where.authorId
+          ? { in: [where.authorId as string].filter((id) => ids.includes(id)) }
+          : { in: ids };
+      } else {
+        // No authors match these centuries — return empty
+        where.authorId = { in: [] };
+      }
+    }
+  }
 
-  const [books, total] = await Promise.all([
-    prisma.book.findMany({
-      where,
-      orderBy: { titleArabic: "asc" },
-      take: limit,
-      skip: offset,
-      select: {
-        id: true,
-        titleArabic: true,
-        titleLatin: true,
-        filename: true,
-        totalVolumes: true,
-        totalPages: true,
-        publicationYearHijri: true,
-        publicationYearGregorian: true,
-        author: {
-          select: { id: true, nameArabic: true, nameLatin: true, deathDateHijri: true, deathDateGregorian: true },
-        },
-        category: {
-          select: { id: true, nameArabic: true, nameEnglish: true },
-        },
-      },
-    }),
-    prisma.book.count({ where }),
+  // Build raw WHERE clauses for numeric ID sorting (Prisma can't ORDER BY CAST)
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let paramIdx = 1;
+
+  if (search) {
+    conditions.push(`(b.title_arabic ILIKE $${paramIdx} OR b.title_latin ILIKE $${paramIdx})`);
+    params.push(`%${search}%`);
+    paramIdx++;
+  }
+  if (where.authorId) {
+    const av = where.authorId as string | { in: string[] };
+    if (typeof av === "string") {
+      conditions.push(`b.author_id = $${paramIdx}`);
+      params.push(av);
+      paramIdx++;
+    } else if (av.in) {
+      conditions.push(`b.author_id = ANY($${paramIdx})`);
+      params.push(av.in);
+      paramIdx++;
+    }
+  }
+  if (where.categoryId) {
+    const cv = where.categoryId as number | { in: number[] };
+    if (typeof cv === "number") {
+      conditions.push(`b.category_id = $${paramIdx}`);
+      params.push(cv);
+      paramIdx++;
+    } else if (cv.in) {
+      conditions.push(`b.category_id = ANY($${paramIdx})`);
+      params.push(cv.in);
+      paramIdx++;
+    }
+  }
+
+  const whereSQL = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const [idRows, countRows] = await Promise.all([
+    prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT b.id FROM books b ${whereSQL} ORDER BY CAST(b.id AS INTEGER) LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      ...params, limit, offset,
+    ),
+    prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count FROM books b ${whereSQL}`,
+      ...params,
+    ),
   ]);
+
+  const orderedIds = idRows.map((r) => r.id);
+  const total = Number(countRows[0]?.count ?? 0);
+
+  const books = orderedIds.length > 0
+    ? await prisma.book.findMany({
+        where: { id: { in: orderedIds } },
+        select: {
+          id: true,
+          titleArabic: true,
+          titleLatin: true,
+          filename: true,
+          totalVolumes: true,
+          totalPages: true,
+          publicationYearHijri: true,
+          publicationYearGregorian: true,
+          author: {
+            select: { id: true, nameArabic: true, nameLatin: true, deathDateHijri: true, deathDateGregorian: true },
+          },
+          category: {
+            select: { id: true, nameArabic: true, nameEnglish: true },
+          },
+        },
+      })
+    : [];
+
+  // Re-sort to match the raw SQL numeric order
+  const idOrder = new Map(orderedIds.map((id, i) => [id, i]));
+  books.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
   return c.json({
     books: books.map((b) => ({

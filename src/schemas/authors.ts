@@ -3,6 +3,7 @@ import { PaginationQuery, SourceSchema } from "./common";
 
 export const AuthorListQuery = PaginationQuery.extend({
   search: z.string().max(500).optional().openapi({ example: "ابن تيمية" }),
+  century: z.string().optional().openapi({ example: "3,7", description: "Hijri century(ies), comma-separated" }),
 });
 
 export const AuthorIdParam = z.object({

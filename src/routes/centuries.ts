@@ -1,0 +1,117 @@
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
+import { prisma } from "../db";
+import { SOURCES } from "../utils/source-urls";
+import { SourceSchema } from "../schemas/common";
+
+// --- 5-minute in-memory cache ---
+const CACHE_TTL_MS = 5 * 60 * 1000;
+let centuryCache: { data: unknown; expiry: number } | null = null;
+let authorCenturyCache: { data: unknown; expiry: number } | null = null;
+
+const CenturyItem = z.object({
+  century: z.number(),
+  booksCount: z.number(),
+});
+
+const CenturyListResponse = z.object({
+  centuries: z.array(CenturyItem),
+  _sources: z.array(SourceSchema),
+}).openapi("CenturyList");
+
+const AuthorCenturyItem = z.object({
+  century: z.number(),
+  authorsCount: z.number(),
+});
+
+const AuthorCenturyListResponse = z.object({
+  centuries: z.array(AuthorCenturyItem),
+  _sources: z.array(SourceSchema),
+}).openapi("AuthorCenturyList");
+
+const listCenturies = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Books"],
+  summary: "Get centuries with book counts",
+  responses: {
+    200: {
+      content: { "application/json": { schema: CenturyListResponse } },
+      description: "List of centuries with book counts",
+    },
+  },
+});
+
+export const centuriesRoutes = new OpenAPIHono();
+
+centuriesRoutes.openapi(listCenturies, async (c) => {
+  if (centuryCache && Date.now() < centuryCache.expiry) {
+    return c.json(centuryCache.data as any, 200);
+  }
+
+  const rows = await prisma.$queryRaw<{ century: number; books_count: bigint }[]>`
+    SELECT
+      CEIL(CAST(a.death_date_hijri AS DOUBLE PRECISION) / 100)::int AS century,
+      COUNT(b.id)::bigint AS books_count
+    FROM authors a
+    JOIN books b ON b.author_id = a.id
+    WHERE a.death_date_hijri ~ '^[0-9]+$'
+    GROUP BY century
+    ORDER BY century
+  `;
+
+  const centuries = rows.map((r) => ({
+    century: Number(r.century),
+    booksCount: Number(r.books_count),
+  }));
+
+  const result = {
+    centuries,
+    _sources: [...SOURCES.turath],
+  };
+
+  centuryCache = { data: result, expiry: Date.now() + CACHE_TTL_MS };
+  return c.json(result, 200);
+});
+
+const listAuthorCenturies = createRoute({
+  method: "get",
+  path: "/authors",
+  tags: ["Authors"],
+  summary: "Get centuries with author counts",
+  responses: {
+    200: {
+      content: { "application/json": { schema: AuthorCenturyListResponse } },
+      description: "List of centuries with author counts",
+    },
+  },
+});
+
+centuriesRoutes.openapi(listAuthorCenturies, async (c) => {
+  if (authorCenturyCache && Date.now() < authorCenturyCache.expiry) {
+    return c.json(authorCenturyCache.data as any, 200);
+  }
+
+  const rows = await prisma.$queryRaw<{ century: number; authors_count: bigint }[]>`
+    SELECT
+      CEIL(CAST(death_date_hijri AS DOUBLE PRECISION) / 100)::int AS century,
+      COUNT(*)::bigint AS authors_count
+    FROM authors
+    WHERE death_date_hijri ~ '^[0-9]+$'
+    GROUP BY century
+    ORDER BY century
+  `;
+
+  const centuries = rows.map((r) => ({
+    century: Number(r.century),
+    authorsCount: Number(r.authors_count),
+  }));
+
+  const result = {
+    centuries,
+    _sources: [...SOURCES.turath],
+  };
+
+  authorCenturyCache = { data: result, expiry: Date.now() + CACHE_TTL_MS };
+  return c.json(result, 200);
+});
