@@ -18,7 +18,8 @@ export const BookListQuery = PaginationQuery.extend({
   limit: z.coerce.number().int().min(1).max(200).default(50).openapi({ example: 50 }),
   search: z.string().max(500).optional().openapi({ example: "الفقه" }),
   authorId: z.string().max(50).optional(),
-  categoryId: z.coerce.number().int().optional(),
+  categoryId: z.string().optional().openapi({ example: "5", description: "Category ID(s), comma-separated" }),
+  century: z.string().optional().openapi({ example: "3,7", description: "Hijri century(ies), comma-separated" }),
 });
 
 export const BookPagesQuery = PaginationQuery.merge(z.object({

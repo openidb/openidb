@@ -42,33 +42,61 @@ const getAuthor = createRoute({
 export const authorsRoutes = new OpenAPIHono();
 
 authorsRoutes.openapi(listAuthors, async (c) => {
-  const { limit, offset, search } = c.req.valid("query");
+  const { limit, offset, search, century } = c.req.valid("query");
 
-  const where: Record<string, unknown> = {};
+  // Build raw WHERE clauses for numeric ID sorting (id is a string column)
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let paramIdx = 1;
+
   if (search) {
-    where.OR = [
-      { nameArabic: { contains: search, mode: "insensitive" } },
-      { nameLatin: { contains: search, mode: "insensitive" } },
-    ];
+    conditions.push(`(a.name_arabic ILIKE $${paramIdx} OR a.name_latin ILIKE $${paramIdx})`);
+    params.push(`%${search}%`);
+    paramIdx++;
   }
 
-  const [authors, total] = await Promise.all([
-    prisma.author.findMany({
-      where,
-      orderBy: { nameArabic: "asc" },
-      take: limit,
-      skip: offset,
-      select: {
-        id: true,
-        nameArabic: true,
-        nameLatin: true,
-        deathDateHijri: true,
-        deathDateGregorian: true,
-        _count: { select: { books: true } },
-      },
-    }),
-    prisma.author.count({ where }),
+  if (century) {
+    const centuries = century.split(",").map(Number).filter((n) => n >= 1 && n <= 15);
+    if (centuries.length > 0) {
+      conditions.push(`a.death_date_hijri ~ '^[0-9]+$' AND CEIL(CAST(a.death_date_hijri AS DOUBLE PRECISION) / 100)::int = ANY($${paramIdx}::int[])`);
+      params.push(centuries);
+      paramIdx++;
+    }
+  }
+
+  const whereSQL = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const [idRows, countRows] = await Promise.all([
+    prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT a.id FROM authors a ${whereSQL} ORDER BY CAST(a.id AS INTEGER) LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      ...params, limit, offset,
+    ),
+    prisma.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count FROM authors a ${whereSQL}`,
+      ...params,
+    ),
   ]);
+
+  const orderedIds = idRows.map((r) => r.id);
+  const total = Number(countRows[0]?.count ?? 0);
+
+  const authors = orderedIds.length > 0
+    ? await prisma.author.findMany({
+        where: { id: { in: orderedIds } },
+        select: {
+          id: true,
+          nameArabic: true,
+          nameLatin: true,
+          deathDateHijri: true,
+          deathDateGregorian: true,
+          _count: { select: { books: true } },
+        },
+      })
+    : [];
+
+  // Re-sort to match raw SQL numeric order
+  const idOrder = new Map(orderedIds.map((id, i) => [id, i]));
+  authors.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
   return c.json({
     authors: authors.map((a) => ({
