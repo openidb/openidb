@@ -119,8 +119,8 @@ interface TurathAuthorApiResponse {
 // Fetch helpers
 // ---------------------------------------------------------------------------
 
-async function fetchJson<T>(url: string, label: string): Promise<T> {
-  console.log(`  Fetching ${label}...`);
+async function fetchJson<T>(url: string, label: string, quiet = false): Promise<T> {
+  if (!quiet) console.log(`  Fetching ${label}...`);
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Failed to fetch ${label}: ${res.status} ${res.statusText}`);
@@ -128,10 +128,11 @@ async function fetchJson<T>(url: string, label: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function fetchTurathContent(id: string): Promise<TurathContent> {
+async function fetchTurathContent(id: string, quiet = false): Promise<TurathContent> {
   const raw = await fetchJson<Record<string, unknown>>(
     `https://files.turath.io/books-v3/${id}.json`,
-    "content"
+    "content",
+    quiet,
   );
 
   // Decode obfuscated metadata
@@ -166,11 +167,12 @@ async function fetchTurathContent(id: string): Promise<TurathContent> {
   return { meta, vol_labels, toc, pages };
 }
 
-async function fetchTurathAuthor(authorId: number): Promise<{ name: string; biography: string | null; deathDateHijri: string | null; birthDateHijri: string | null }> {
+async function fetchTurathAuthor(authorId: number, quiet = false): Promise<{ name: string; biography: string | null; deathDateHijri: string | null; birthDateHijri: string | null }> {
   try {
     const data = await fetchJson<TurathAuthorApiResponse>(
       `https://api.turath.io/author?id=${authorId}`,
-      "author"
+      "author",
+      quiet,
     );
 
     // The info field is a JSON-encoded string
@@ -569,6 +571,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Retry an upsert on unique constraint conflict (Prisma P2002) */
+async function upsertWithRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const isPrismaConflict = err instanceof Error && err.message.includes("Unique constraint failed");
+      if (isPrismaConflict && attempt < retries - 1) {
+        await sleep(50 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("upsertWithRetry: unreachable");
+}
+
 // ---------------------------------------------------------------------------
 // Exported result type
 // ---------------------------------------------------------------------------
@@ -587,25 +606,27 @@ export interface ImportResult {
 
 export async function importTurathBook(
   id: string,
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; quiet?: boolean; skipPdfs?: boolean } = {},
 ): Promise<ImportResult> {
-  const { dryRun = false } = options;
+  const { dryRun = false, quiet = false, skipPdfs = false } = options;
+  const log = quiet ? (..._args: unknown[]) => {} : console.log.bind(console);
 
   try {
     // 1. Fetch book metadata from Turath API
-    console.log("Step 1: Fetching metadata...");
+    log("Step 1: Fetching metadata...");
     const bookApi = await fetchJson<TurathBookApiResponse>(
       `https://api.turath.io/book?id=${id}`,
-      "book metadata"
+      "book metadata",
+      quiet,
     );
 
     // 2. Fetch content file
-    console.log("\nStep 2: Fetching content...");
-    const content = await fetchTurathContent(id);
+    log("\nStep 2: Fetching content...");
+    const content = await fetchTurathContent(id, quiet);
 
     // 3. Fetch author
-    console.log("\nStep 3: Fetching author...");
-    const authorInfo = await fetchTurathAuthor(content.meta.author_id);
+    log("\nStep 3: Fetching author...");
+    const authorInfo = await fetchTurathAuthor(content.meta.author_id, quiet);
     const authorName = authorInfo.name || bookApi.meta.name;
 
     // Build volume label map
@@ -642,135 +663,99 @@ export async function importTurathBook(
     }
 
     // Print summary
-    console.log("\n" + "-".repeat(60));
-    console.log("Book Summary:");
-    console.log(`  Title:           ${content.meta.name}`);
-    console.log(`  Author:          ${authorName} (ID: ${content.meta.author_id})`);
-    console.log(`  Category ID:     ${content.meta.cat_id} (${getCategoryName(content.meta.cat_id)})`);
-    console.log(`  Pages:           ${content.pages.length}`);
-    console.log(`  Volumes:         ${totalVolumes} (labels: ${content.vol_labels.join(", ") || "none"})`);
-    console.log(`  TOC entries:     ${content.toc.length}`);
-    console.log(`  Printed match:   ${content.meta.printed === 1 ? "yes" : content.meta.printed === 3 ? "auto-numbered" : `unknown (${content.meta.printed})`}`);
-    console.log(`  Type:            ${content.meta.type}`);
+    log("\n" + "-".repeat(60));
+    log("Book Summary:");
+    log(`  Title:           ${content.meta.name}`);
+    log(`  Author:          ${authorName} (ID: ${content.meta.author_id})`);
+    log(`  Category ID:     ${content.meta.cat_id} (${getCategoryName(content.meta.cat_id)})`);
+    log(`  Pages:           ${content.pages.length}`);
+    log(`  Volumes:         ${totalVolumes} (labels: ${content.vol_labels.join(", ") || "none"})`);
+    log(`  TOC entries:     ${content.toc.length}`);
+    log(`  Printed match:   ${content.meta.printed === 1 ? "yes" : content.meta.printed === 3 ? "auto-numbered" : `unknown (${content.meta.printed})`}`);
+    log(`  Type:            ${content.meta.type}`);
 
     // Show parsed info fields
-    console.log("\nParsed Info:");
-    console.log(`  Editor:          ${parsedInfo.editor || "(none)"}`);
-    console.log(`  Publisher:       ${parsedInfo.publisher || "(none)"}`);
-    console.log(`  Pub. location:   ${parsedInfo.publisherLocation || "(none)"}`);
-    console.log(`  Edition:         ${parsedInfo.edition || "(none)"}`);
-    console.log(`  Year (Hijri):    ${parsedInfo.yearHijri || "(none)"}`);
-    console.log(`  Year (Greg.):    ${parsedInfo.yearGregorian || "(none)"}`);
-    console.log(`  Alignment note:  ${parsedInfo.pageAlignmentNote || printedFlagNote || "(none)"}`);
-    console.log(`  Verified:        ${parsedInfo.isVerified ? "yes (محقق)" : "no"}`);
+    log("\nParsed Info:");
+    log(`  Editor:          ${parsedInfo.editor || "(none)"}`);
+    log(`  Publisher:       ${parsedInfo.publisher || "(none)"}`);
+    log(`  Pub. location:   ${parsedInfo.publisherLocation || "(none)"}`);
+    log(`  Edition:         ${parsedInfo.edition || "(none)"}`);
+    log(`  Year (Hijri):    ${parsedInfo.yearHijri || "(none)"}`);
+    log(`  Year (Greg.):    ${parsedInfo.yearGregorian || "(none)"}`);
+    log(`  Alignment note:  ${parsedInfo.pageAlignmentNote || printedFlagNote || "(none)"}`);
+    log(`  Verified:        ${parsedInfo.isVerified ? "yes (محقق)" : "no"}`);
     if (parsedInfo.authorBirthDateHijri) {
-      console.log(`  Author birth:    ${parsedInfo.authorBirthDateHijri} هـ`);
+      log(`  Author birth:    ${parsedInfo.authorBirthDateHijri} هـ`);
     }
     if (parsedInfo.authorDeathDateHijri) {
-      console.log(`  Author death:    ${parsedInfo.authorDeathDateHijri} هـ`);
+      log(`  Author death:    ${parsedInfo.authorDeathDateHijri} هـ`);
     }
 
     // Show PDF info
     if (pdfLinks?.files && pdfLinks.files.length > 0) {
       const sampleUrl = buildPdfUrl(pdfLinks, 0);
-      console.log(`\n  PDF files:       ${pdfLinks.files.length}`);
-      console.log(`  PDF root:        ${pdfLinks.root || "(full URLs in files)"}`);
-      if (sampleUrl) console.log(`  PDF sample:      ${sampleUrl.substring(0, 80)}${sampleUrl.length > 80 ? "..." : ""}`);
+      log(`\n  PDF files:       ${pdfLinks.files.length}`);
+      log(`  PDF root:        ${pdfLinks.root || "(full URLs in files)"}`);
+      if (sampleUrl) log(`  PDF sample:      ${sampleUrl.substring(0, 80)}${sampleUrl.length > 80 ? "..." : ""}`);
     }
 
-    console.log("-".repeat(60));
+    log("-".repeat(60));
 
     // Show first few pages as preview
     if (content.pages.length > 0) {
-      console.log("\nPage preview (first 3):");
+      log("\nPage preview (first 3):");
       for (const page of content.pages.slice(0, 3)) {
         const plain = stripHtml(page.text);
-        console.log(`  [vol=${page.vol}, page=${page.page}] ${plain.substring(0, 80)}...`);
+        log(`  [vol=${page.vol}, page=${page.page}] ${plain.substring(0, 80)}...`);
       }
     }
 
     if (dryRun) {
-      console.log("\n[DRY RUN] No database changes made.");
+      log("\n[DRY RUN] No database changes made.");
       return { bookId: id, title: content.meta.name, pages: content.pages.length, success: true };
     }
 
-    // 4. Ensure Author in DB
-    console.log("\nStep 4: Ensuring author...");
+    // 4. Ensure Author in DB (upsert to avoid race conditions in parallel imports)
+    log("\nStep 4: Ensuring author...");
     const authorId = String(content.meta.author_id);
-
-    const existingAuthor = await prisma.author.findUnique({ where: { id: authorId } });
 
     // Resolve birth/death dates: prefer API data, fallback to parsed info field
     const authorBirthDate = authorInfo.birthDateHijri || parsedInfo.authorBirthDateHijri || null;
     const authorDeathDate = authorInfo.deathDateHijri || parsedInfo.authorDeathDateHijri || null;
 
-    if (existingAuthor) {
-      console.log(`  Author already exists: ${existingAuthor.nameArabic}`);
-      // Update biography and dates if we have new data and existing is empty
-      const authorUpdates: Record<string, string> = {};
-      if (authorInfo.biography && !existingAuthor.biography) {
-        authorUpdates.biography = authorInfo.biography;
-        authorUpdates.biographySource = "turath.io";
-      }
-      if (authorBirthDate && !existingAuthor.birthDateHijri) {
-        authorUpdates.birthDateHijri = authorBirthDate;
-      }
-      if (authorDeathDate && !existingAuthor.deathDateHijri) {
-        authorUpdates.deathDateHijri = authorDeathDate;
-      }
-      if (!existingAuthor.biographySource && authorInfo.biography) {
-        authorUpdates.biographySource = "turath.io";
-      }
-      if (Object.keys(authorUpdates).length > 0) {
-        await prisma.author.update({
-          where: { id: authorId },
-          data: authorUpdates,
-        });
-        console.log(`  Updated author fields: ${Object.keys(authorUpdates).join(", ")}`);
-      }
-    } else {
-      await prisma.author.create({
-        data: {
-          id: authorId,
-          nameArabic: authorName,
-          biography: authorInfo.biography,
-          biographySource: authorInfo.biography ? "turath.io" : null,
-          deathDateHijri: authorDeathDate,
-          birthDateHijri: authorBirthDate,
-        },
-      });
-      console.log(`  Created author: ${authorName}`);
-    }
+    await upsertWithRetry(() => prisma.author.upsert({
+      where: { id: authorId },
+      create: {
+        id: authorId,
+        nameArabic: authorName,
+        biography: authorInfo.biography,
+        biographySource: authorInfo.biography ? "turath.io" : null,
+        deathDateHijri: authorDeathDate,
+        birthDateHijri: authorBirthDate,
+      },
+      update: {
+        // Always overwrite with latest data — Turath is the source of truth
+        ...(authorInfo.biography ? { biography: authorInfo.biography, biographySource: "turath.io" } : {}),
+        ...(authorBirthDate ? { birthDateHijri: authorBirthDate } : {}),
+        ...(authorDeathDate ? { deathDateHijri: authorDeathDate } : {}),
+      },
+    }));
+    log(`  Author: ${authorName} (ID: ${authorId})`);
 
-    // 5. Ensure Category in DB
-    console.log("\nStep 5: Ensuring category...");
+    // 5. Ensure Category in DB (upsert to avoid race conditions in parallel imports)
+    log("\nStep 5: Ensuring category...");
     const categoryName = getCategoryName(content.meta.cat_id);
     const catCode = String(content.meta.cat_id);
 
-    let categoryRecord = await prisma.category.findUnique({ where: { nameArabic: categoryName } });
-    if (!categoryRecord) {
-      categoryRecord = await prisma.category.create({
-        data: {
-          nameArabic: categoryName,
-          code: catCode,
-        },
-      });
-      console.log(`  Created category: ${categoryName}`);
-    } else {
-      // Update code if missing
-      if (!categoryRecord.code) {
-        categoryRecord = await prisma.category.update({
-          where: { id: categoryRecord.id },
-          data: { code: catCode },
-        });
-        console.log(`  Updated category code: ${categoryName} → ${catCode}`);
-      } else {
-        console.log(`  Category exists: ${categoryName}`);
-      }
-    }
+    const categoryRecord = await upsertWithRetry(() => prisma.category.upsert({
+      where: { nameArabic: categoryName },
+      create: { nameArabic: categoryName, code: catCode },
+      update: {},
+    }));
+    log(`  Category: ${categoryName} (ID: ${categoryRecord.id})`);
 
     // 6. Build TOC with mapped page numbers
-    console.log("\nStep 6: Building table of contents...");
+    log("\nStep 6: Building table of contents...");
 
     // Map printed page number → 0-based index in pages array, then +1 for overview page offset
     const printedToIndex = new Map<number, number>();
@@ -787,34 +772,34 @@ export async function importTurathBook(
       page: printedToIndex.get(entry.page) ?? (entry.page + 1),
     }));
 
-    console.log(`  ${tocEntries.length} TOC entries mapped`);
+    log(`  ${tocEntries.length} TOC entries mapped`);
 
     // 6b. Ensure Publisher in DB
     let publisherRecord: { id: number } | null = null;
     if (parsedInfo.publisher) {
-      console.log("\nStep 7b: Ensuring publisher...");
-      publisherRecord = await prisma.publisher.upsert({
+      log("\nStep 6b: Ensuring publisher...");
+      publisherRecord = await upsertWithRetry(() => prisma.publisher.upsert({
         where: { name: parsedInfo.publisher },
         create: { name: parsedInfo.publisher, location: parsedInfo.publisherLocation },
         update: {},
-      });
-      console.log(`  Publisher: ${parsedInfo.publisher} (ID: ${publisherRecord.id})`);
+      }));
+      log(`  Publisher: ${parsedInfo.publisher} (ID: ${publisherRecord.id})`);
     }
 
     // 6c. Ensure Editor in DB
     let editorRecord: { id: number } | null = null;
     if (parsedInfo.editor) {
-      console.log("\nStep 7c: Ensuring editor...");
-      editorRecord = await prisma.editor.upsert({
+      log("\nStep 6c: Ensuring editor...");
+      editorRecord = await upsertWithRetry(() => prisma.editor.upsert({
         where: { name: parsedInfo.editor },
         create: { name: parsedInfo.editor },
         update: {},
-      });
-      console.log(`  Editor: ${parsedInfo.editor} (ID: ${editorRecord.id})`);
+      }));
+      log(`  Editor: ${parsedInfo.editor} (ID: ${editorRecord.id})`);
     }
 
     // 7. Create Book record
-    console.log("\nStep 7: Creating book...");
+    log("\nStep 7: Creating book...");
     const bookId = String(id);
 
     const displayTitle = content.meta.name;
@@ -841,19 +826,21 @@ export async function importTurathBook(
 
     const existingBook = await prisma.book.findUnique({ where: { id: bookId } });
     if (existingBook) {
-      console.log(`  Book already exists (ID: ${bookId}). Updating metadata...`);
+      log(`  Book already exists (ID: ${bookId}). Updating metadata...`);
       await prisma.book.update({ where: { id: bookId }, data: bookData });
     } else {
       await prisma.book.create({ data: { id: bookId, ...bookData } });
-      console.log(`  Created book: ${displayTitle}`);
+      log(`  Created book: ${displayTitle}`);
     }
 
     // 8. Download & store PDFs in RustFS
     const pdfKeyMap = new Map<number, string>(); // volumeIndex → RustFS key
     const failedVolumes = new Set<number>(); // track volumes whose download failed
 
-    if (pdfLinks?.files && pdfLinks.files.length > 0) {
-      console.log("\nStep 8: Downloading PDFs to RustFS...");
+    if (skipPdfs) {
+      log("\nStep 8: Skipping PDFs (--skip-pdfs).");
+    } else if (pdfLinks?.files && pdfLinks.files.length > 0) {
+      log("\nStep 8: Downloading PDFs to RustFS...");
       await ensureBucket();
 
       let downloaded = 0;
@@ -891,18 +878,18 @@ export async function importTurathBook(
         }
       }
 
-      console.log(`  Downloaded: ${downloaded}, Skipped (cached): ${skippedPdfs}, Failed: ${failedPdfs}`);
+      log(`  Downloaded: ${downloaded}, Skipped (cached): ${skippedPdfs}, Failed: ${failedPdfs}`);
     } else {
-      console.log("\nStep 8: No PDF links available, skipping PDF download.");
+      log("\nStep 8: No PDF links available, skipping PDF download.");
     }
 
     // 9. Create Page records
-    console.log("\nStep 9: Importing pages...");
+    log("\nStep 9: Importing pages...");
 
     // Delete existing pages for this book (clean re-import)
     const deletedCount = await prisma.page.deleteMany({ where: { bookId } });
     if (deletedCount.count > 0) {
-      console.log(`  Deleted ${deletedCount.count} existing pages`);
+      log(`  Deleted ${deletedCount.count} existing pages`);
     }
 
     // 9a. Generate and insert overview page (pageNumber=0)
@@ -936,7 +923,7 @@ export async function importTurathBook(
         pdfUrl: overviewPdfUrl,
       },
     });
-    console.log("  Created overview page (page 0)");
+    log("  Created overview page (page 0)");
 
     // 9b. Batch insert content pages (shifted by +1: first content page = pageNumber 1)
     const BATCH_SIZE = 100;
@@ -990,29 +977,31 @@ export async function importTurathBook(
       }
 
       // Progress
-      const pct = Math.round(((i + batch.length) / content.pages.length) * 100);
-      process.stdout.write(`\r  Progress: ${importedPages} pages imported (${pct}%)`);
+      if (!quiet) {
+        const pct = Math.round(((i + batch.length) / content.pages.length) * 100);
+        process.stdout.write(`\r  Progress: ${importedPages} pages imported (${pct}%)`);
+      }
     }
 
-    console.log(); // newline after progress
+    if (!quiet) console.log(); // newline after progress
 
     // 10. Print final summary
-    console.log("\n" + "=".repeat(60));
-    console.log("IMPORT COMPLETE");
-    console.log("=".repeat(60));
-    console.log(`  Book:            ${content.meta.name}`);
-    console.log(`  ID:              ${bookId}`);
-    console.log(`  Author:          ${authorName} (ID: ${authorId})`);
-    console.log(`  Category:        ${categoryName}`);
-    console.log(`  Pages imported:  ${importedPages} (incl. overview)`);
-    console.log(`  Pages skipped:   ${skippedPages} (empty)`);
-    console.log(`  Volumes:         ${totalVolumes}`);
-    console.log(`  PDFs stored:     ${pdfKeyMap.size}`);
-    if (publisherRecord) console.log(`  Publisher:       ${parsedInfo.publisher}`);
-    if (editorRecord) console.log(`  Editor:          ${parsedInfo.editor}`);
-    if (parsedInfo.yearHijri) console.log(`  Year (Hijri):    ${parsedInfo.yearHijri}`);
-    if (parsedInfo.yearGregorian) console.log(`  Year (Greg.):    ${parsedInfo.yearGregorian}`);
-    console.log("=".repeat(60));
+    log("\n" + "=".repeat(60));
+    log("IMPORT COMPLETE");
+    log("=".repeat(60));
+    log(`  Book:            ${content.meta.name}`);
+    log(`  ID:              ${bookId}`);
+    log(`  Author:          ${authorName} (ID: ${authorId})`);
+    log(`  Category:        ${categoryName}`);
+    log(`  Pages imported:  ${importedPages} (incl. overview)`);
+    log(`  Pages skipped:   ${skippedPages} (empty)`);
+    log(`  Volumes:         ${totalVolumes}`);
+    log(`  PDFs stored:     ${pdfKeyMap.size}`);
+    if (publisherRecord) log(`  Publisher:       ${parsedInfo.publisher}`);
+    if (editorRecord) log(`  Editor:          ${parsedInfo.editor}`);
+    if (parsedInfo.yearHijri) log(`  Year (Hijri):    ${parsedInfo.yearHijri}`);
+    if (parsedInfo.yearGregorian) log(`  Year (Greg.):    ${parsedInfo.yearGregorian}`);
+    log("=".repeat(60));
 
     return { bookId, title: content.meta.name, pages: importedPages, success: true };
   } catch (error) {
