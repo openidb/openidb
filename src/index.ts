@@ -18,6 +18,7 @@ import { requestLogger } from "./middleware/request-logger";
 import { internalAuth } from "./middleware/internal-auth";
 import { prisma } from "./db";
 import { qdrant } from "./qdrant";
+import { checkS3Health } from "./utils/s3-bucket";
 
 const app = new OpenAPIHono({
   defaultHook: (result, c) => {
@@ -85,7 +86,7 @@ app.route("/api/books", booksRoutes);
 app.route("/api/transcribe", transcribeRoutes);
 app.route("/api/stats", statsRoutes);
 
-// Health check — pings Postgres, Qdrant, and Elasticsearch
+// Health check — pings Postgres, Qdrant, Elasticsearch, and S3 (RustFS)
 app.get("/api/health", async (c) => {
   const checks: Record<string, "ok" | "error"> = {};
   const errors: string[] = [];
@@ -127,7 +128,19 @@ app.get("/api/health", async (c) => {
     errors.push(`elasticsearch: ${(err as Error).message}`);
   }
 
-  const allOk = Object.values(checks).every((v) => v === "ok");
+  // S3 (RustFS) — non-blocking, doesn't affect overall status
+  try {
+    checks.s3 = await checkS3Health();
+    if (checks.s3 === "error") errors.push("s3: health check failed");
+  } catch (err) {
+    checks.s3 = "error";
+    errors.push(`s3: ${(err as Error).message}`);
+  }
+
+  // S3 is non-blocking: exclude from allOk calculation
+  const allOk = Object.entries(checks)
+    .filter(([key]) => key !== "s3")
+    .every(([, v]) => v === "ok");
   const status = allOk ? "ok" : "degraded";
 
   // In production, only expose aggregate status without service topology

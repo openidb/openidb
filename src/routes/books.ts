@@ -1,8 +1,13 @@
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
+import { z } from "@hono/zod-openapi";
 import { prisma } from "../db";
 import { callOpenRouter } from "../lib/openrouter";
 import { generateShamelaBookUrl, generateShamelaPageUrl, SOURCES } from "../utils/source-urls";
 import { hashPageTranslation } from "../utils/content-hash";
+import { detectPdfStorage } from "../utils/pdf-storage";
+import { s3, BUCKET_NAME } from "../s3";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ErrorResponse } from "../schemas/common";
 import {
   BookIdParam, BookPageParam,
@@ -148,6 +153,30 @@ const listPages = createRoute({
   },
 });
 
+const PdfUrlResponse = z.object({
+  url: z.string(),
+  type: z.enum(["rustfs", "external"]),
+  expiresIn: z.number().optional(),
+}).openapi("PdfUrl");
+
+const getPagePdf = createRoute({
+  method: "get",
+  path: "/{id}/pages/{page}/pdf",
+  tags: ["Books"],
+  summary: "Get PDF URL for a book page",
+  request: { params: BookPageParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: PdfUrlResponse } },
+      description: "PDF URL (presigned for RustFS, direct for external)",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Page not found or no PDF available",
+    },
+  },
+});
+
 // --- Handlers ---
 
 export const booksRoutes = new OpenAPIHono();
@@ -179,8 +208,9 @@ booksRoutes.openapi(listBooks, async (c) => {
         totalVolumes: true,
         totalPages: true,
         publicationYearHijri: true,
+        publicationYearGregorian: true,
         author: {
-          select: { id: true, nameArabic: true, nameLatin: true },
+          select: { id: true, nameArabic: true, nameLatin: true, deathDateHijri: true, deathDateGregorian: true },
         },
         category: {
           select: { id: true, nameArabic: true, nameEnglish: true },
@@ -193,6 +223,8 @@ booksRoutes.openapi(listBooks, async (c) => {
   return c.json({
     books: books.map((b) => ({
       ...b,
+      displayDate: b.author?.deathDateHijri || b.publicationYearHijri || null,
+      displayDateType: b.author?.deathDateHijri ? "death" : b.publicationYearHijri ? "publication" : null,
       shamelaUrl: generateShamelaBookUrl(b.id),
     })),
     total,
@@ -220,12 +252,14 @@ booksRoutes.openapi(getBook, async (c) => {
       verificationStatus: true,
       descriptionHtml: true,
       summary: true,
+      tableOfContents: true,
       author: {
         select: {
           id: true,
           nameArabic: true,
           nameLatin: true,
           deathDateHijri: true,
+          deathDateGregorian: true,
         },
       },
       category: {
@@ -250,6 +284,8 @@ booksRoutes.openapi(getBook, async (c) => {
   return c.json({
     book: {
       ...book,
+      displayDate: book.author?.deathDateHijri || book.publicationYearHijri || null,
+      displayDateType: book.author?.deathDateHijri ? "death" : book.publicationYearHijri ? "publication" : null,
       shamelaUrl: generateShamelaBookUrl(book.id),
     },
     _sources: [...SOURCES.shamela],
@@ -365,6 +401,7 @@ booksRoutes.openapi(getPage, async (c) => {
       hasHadith: true,
       hasQuran: true,
       sourceUrl: true,
+      pdfUrl: true,
     },
   });
 
@@ -408,4 +445,33 @@ booksRoutes.openapi(listPages, async (c) => {
     offset,
     _sources: [...SOURCES.shamela],
   }, 200);
+});
+
+booksRoutes.openapi(getPagePdf, async (c) => {
+  const { id: bookId, page: pageNumber } = c.req.valid("param");
+
+  const page = await prisma.page.findUnique({
+    where: { bookId_pageNumber: { bookId, pageNumber } },
+    select: { pdfUrl: true },
+  });
+
+  if (!page) {
+    return c.json({ error: "Page not found" }, 404);
+  }
+
+  const storage = detectPdfStorage(page.pdfUrl);
+
+  if (storage.type === "none") {
+    return c.json({ error: "No PDF available for this page" }, 404);
+  }
+
+  if (storage.type === "external") {
+    return c.json({ url: storage.url, type: "external" as const }, 200);
+  }
+
+  const expiresIn = 3600;
+  const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: storage.key });
+  const url = await getSignedUrl(s3, command, { expiresIn });
+
+  return c.json({ url, type: "rustfs" as const, expiresIn }, 200);
 });

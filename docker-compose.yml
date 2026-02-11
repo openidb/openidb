@@ -12,7 +12,7 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/18/data
     deploy:
       resources:
         limits:
@@ -89,6 +89,29 @@ services:
       timeout: 5s
       retries: 5
 
+  rustfs:
+    container_name: openidb-rustfs
+    image: rustfs/rustfs:latest
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-openidb_access}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-openidb_secret_change_me}
+      RUSTFS_VOLUMES: /data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - rustfs_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/localhost/9000' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ---------- Application ----------
 
   openidb:
@@ -106,6 +129,7 @@ services:
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
       NEO4J_URI: bolt://neo4j:7687
+      RUSTFS_ENDPOINT: http://rustfs:9000
       TRUSTED_PROXY: "true"
     depends_on:
       db:
@@ -150,13 +174,16 @@ services:
 volumes:
   postgres_data:
     external: true
-    name: arabic_texts_pgdata_18
+    name: openidb_postgres_data
   qdrant_data:
     external: true
-    name: book-viewer_qdrant_data
+    name: openidb_qdrant_data
   elasticsearch_data:
     external: true
-    name: book-viewer_elasticsearch_data
+    name: openidb_elasticsearch_data
   neo4j_data:
     external: true
-    name: book-viewer_neo4j_data
+    name: openidb_neo4j_data
+  rustfs_data:
+    external: true
+    name: openidb_rustfs_data
