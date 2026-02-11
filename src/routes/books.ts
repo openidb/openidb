@@ -2,7 +2,7 @@ import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { z } from "@hono/zod-openapi";
 import { prisma } from "../db";
 import { callOpenRouter } from "../lib/openrouter";
-import { generateShamelaBookUrl, generateShamelaPageUrl, SOURCES } from "../utils/source-urls";
+import { generateBookReferenceUrl, generatePageReferenceUrl, SOURCES } from "../utils/source-urls";
 import { hashPageTranslation } from "../utils/content-hash";
 import { detectPdfStorage } from "../utils/pdf-storage";
 import { s3, BUCKET_NAME } from "../s3";
@@ -225,12 +225,12 @@ booksRoutes.openapi(listBooks, async (c) => {
       ...b,
       displayDate: b.author?.deathDateHijri || b.publicationYearHijri || null,
       displayDateType: b.author?.deathDateHijri ? "death" : b.publicationYearHijri ? "publication" : null,
-      shamelaUrl: generateShamelaBookUrl(b.id),
+      referenceUrl: generateBookReferenceUrl(b.id),
     })),
     total,
     limit,
     offset,
-    _sources: [...SOURCES.shamela],
+    _sources: [...SOURCES.turath],
   }, 200);
 });
 
@@ -286,9 +286,9 @@ booksRoutes.openapi(getBook, async (c) => {
       ...book,
       displayDate: book.author?.deathDateHijri || book.publicationYearHijri || null,
       displayDateType: book.author?.deathDateHijri ? "death" : book.publicationYearHijri ? "publication" : null,
-      shamelaUrl: generateShamelaBookUrl(book.id),
+      referenceUrl: generateBookReferenceUrl(book.id),
     },
-    _sources: [...SOURCES.shamela],
+    _sources: [...SOURCES.turath],
   }, 200);
 });
 
@@ -412,9 +412,9 @@ booksRoutes.openapi(getPage, async (c) => {
   return c.json({
     page: {
       ...page,
-      shamelaUrl: generateShamelaPageUrl(bookId, pageNumber),
+      referenceUrl: generatePageReferenceUrl(bookId, pageNumber),
     },
-    _sources: [...SOURCES.shamela],
+    _sources: [...SOURCES.turath],
   }, 200);
 });
 
@@ -443,7 +443,7 @@ booksRoutes.openapi(listPages, async (c) => {
     total,
     limit,
     offset,
-    _sources: [...SOURCES.shamela],
+    _sources: [...SOURCES.turath],
   }, 200);
 });
 

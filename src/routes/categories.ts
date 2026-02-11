@@ -88,7 +88,7 @@ categoriesRoutes.openapi(listCategories, async (c) => {
         parentId: cat.parentId,
         booksCount: cat._count.books,
       })),
-      _sources: [...SOURCES.shamela],
+      _sources: [...SOURCES.turath],
     };
     setCache(cacheKey, result);
     return c.json(result, 200);
@@ -129,7 +129,7 @@ categoriesRoutes.openapi(listCategories, async (c) => {
 
   const result = {
     categories: roots,
-    _sources: [...SOURCES.shamela],
+    _sources: [...SOURCES.turath],
   };
   setCache(cacheKey, result);
   return c.json(result, 200);
@@ -177,6 +177,6 @@ categoriesRoutes.openapi(getCategory, async (c) => {
     total,
     limit,
     offset,
-    _sources: [...SOURCES.shamela],
+    _sources: [...SOURCES.turath],
   }, 200);
 });

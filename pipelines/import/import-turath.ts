@@ -204,7 +204,7 @@ async function fetchTurathAuthor(authorId: number): Promise<{ name: string; biog
 }
 
 // ---------------------------------------------------------------------------
-// HTML stripping (same logic as extract-epub-pages.ts)
+// HTML stripping
 // ---------------------------------------------------------------------------
 
 function stripHtml(html: string): string {
@@ -231,7 +231,7 @@ function stripHtml(html: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Basic Arabic transliteration (same as import-epubs.ts)
+// Basic Arabic transliteration
 // ---------------------------------------------------------------------------
 
 function transliterateBasic(text: string): string {
@@ -301,7 +301,7 @@ function transliterateBasic(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Content detection (same as extract-epub-pages.ts)
+// Content detection
 // ---------------------------------------------------------------------------
 
 function detectContentFlags(text: string) {
@@ -550,8 +550,8 @@ function resolveVolumeNumber(vol: string, labelMap: Map<string, number>): number
 // Category extraction from info text
 // ---------------------------------------------------------------------------
 
-/** Turath cat_id → Arabic category name (known Shamela category IDs) */
-const SHAMELA_CATEGORIES: Record<number, string> = {
+/** Turath cat_id → Arabic category name */
+const TURATH_CATEGORIES: Record<number, string> = {
   0: "عام",
   1: "العقيدة",
   2: "التفاسير",
@@ -581,7 +581,7 @@ const SHAMELA_CATEGORIES: Record<number, string> = {
 };
 
 function getCategoryName(catId: number): string {
-  return SHAMELA_CATEGORIES[catId] || "عام";
+  return TURATH_CATEGORIES[catId] || "عام";
 }
 
 // ---------------------------------------------------------------------------
@@ -898,7 +898,7 @@ async function main() {
   const displayTitle = content.meta.name;
 
   const bookData = {
-    titleArabic: displayTitle + " TURATH",
+    titleArabic: displayTitle,
     titleLatin,
     authorId,
     categoryId: categoryRecord.id,
@@ -1001,7 +1001,7 @@ async function main() {
       contentHtml: overviewContent,
       contentPlain: overviewPlain,
       contentHash: overviewHash,
-      sourceUrl: `https://shamela.ws/book/${id}`,
+      sourceUrl: `https://app.turath.io/book/${id}`,
     },
   });
   console.log("  Created overview page (page 0)");
@@ -1045,7 +1045,7 @@ async function main() {
         contentPlain,
         contentHtml,
         contentHash,
-        sourceUrl: `https://shamela.ws/book/${id}/${printedPageNumber}`,
+        sourceUrl: `https://app.turath.io/book/${id}#p-${printedPageNumber}`,
         pdfUrl: pagePdfUrl,
         ...contentFlags,
       });

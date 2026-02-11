@@ -11,7 +11,7 @@ import {
   type ResolvedSource,
 } from "../../graph/search";
 import { normalizeArabicText } from "../../embeddings";
-import { generateShamelaPageUrl } from "../../utils/source-urls";
+import { generatePageReferenceUrl } from "../../utils/source-urls";
 import { calculateRRFScore, getMatchType } from "./fusion";
 import { getSearchStrategy } from "./query-utils";
 import { RRF_K, SEMANTIC_WEIGHT, KEYWORD_WEIGHT } from "./config";
@@ -120,7 +120,7 @@ export async function fetchBookDetails(
   bookTitleLang: string | undefined,
 ): Promise<{
   results: RankedResult[];
-  books: Array<{ id: string; titleArabic: string; titleLatin: string; filename: string; publicationYearHijri: string | null; titleTranslated: string | null; author: { nameArabic: string; nameLatin: string; deathDateHijri: string | null } }>;
+  books: Array<{ id: string; titleArabic: string; titleLatin: string; filename: string; publicationYearHijri: string | null; publicationYearGregorian: string | null; titleTranslated: string | null; author: { nameArabic: string; nameLatin: string; deathDateHijri: string | null; deathDateGregorian: string | null } }>;
   timing: { bookMetadata: number };
 }> {
   // Fetch urlPageIndex
@@ -153,8 +153,9 @@ export async function fetchBookDetails(
       titleLatin: true,
       filename: true,
       publicationYearHijri: true,
+      publicationYearGregorian: true,
       author: {
-        select: { nameArabic: true, nameLatin: true, deathDateHijri: true },
+        select: { nameArabic: true, nameLatin: true, deathDateHijri: true, deathDateGregorian: true },
       },
       ...(bookTitleLang && bookTitleLang !== "none" && bookTitleLang !== "transliteration"
         ? {
@@ -181,7 +182,7 @@ export async function fetchBookDetails(
 
 export function formatSearchResults(
   rankedResults: RankedResult[],
-  books: Array<{ id: string; titleArabic: string; titleLatin: string; filename: string; titleTranslated: string | null; author: { nameArabic: string; nameLatin: string; deathDateHijri?: string | null } }>,
+  books: Array<{ id: string; titleArabic: string; titleLatin: string; filename: string; titleTranslated: string | null; author: { nameArabic: string; nameLatin: string; deathDateHijri?: string | null; deathDateGregorian?: string | null } }>,
   mode: string,
 ): SearchResult[] {
   const bookMap = new Map(books.map((b) => [b.id, b]));
@@ -209,7 +210,7 @@ export function formatSearchResults(
       highlightedSnippet: result.highlightedSnippet,
       matchType,
       urlPageIndex: result.urlPageIndex,
-      shamelaUrl: result.shamelaUrl || generateShamelaPageUrl(result.bookId, result.pageNumber),
+      referenceUrl: result.referenceUrl || generatePageReferenceUrl(result.bookId, result.pageNumber),
       contentTranslation: result.contentTranslation,
       book,
     };

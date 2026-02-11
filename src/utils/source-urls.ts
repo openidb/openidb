@@ -6,7 +6,7 @@
  */
 
 export const SOURCES = {
-  shamela: [{ name: "Maktaba Shamela", url: "https://shamela.ws", type: "backup" }],
+  turath: [{ name: "Turath Library", url: "https://turath.io", type: "api" }],
   sunnah: [{ name: "sunnah.com", url: "https://sunnah.com", type: "scrape" }],
   quranCloud: [{ name: "Al Quran Cloud API", url: "https://api.alquran.cloud", type: "api" }],
   tafsir: [
@@ -43,17 +43,17 @@ export function generateQuranUrl(surahNumber: number, ayahNumber: number): strin
 }
 
 /**
- * Generate a shamela.ws URL for a book.
+ * Generate a turath.io URL for a book.
  */
-export function generateShamelaBookUrl(bookId: string): string {
-  return `https://shamela.ws/book/${bookId}`;
+export function generateBookReferenceUrl(bookId: string): string {
+  return `https://app.turath.io/book/${bookId}`;
 }
 
 /**
- * Generate a shamela.ws URL for a specific page in a book.
+ * Generate a turath.io URL for a specific page in a book.
  */
-export function generateShamelaPageUrl(bookId: string, pageNumber: number): string {
-  return `https://shamela.ws/book/${bookId}/${pageNumber}`;
+export function generatePageReferenceUrl(bookId: string, pageNumber: number): string {
+  return `https://app.turath.io/book/${bookId}#p-${pageNumber}`;
 }
 
 /**
