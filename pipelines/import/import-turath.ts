@@ -189,8 +189,8 @@ async function fetchTurathAuthor(authorId: number): Promise<{ name: string; biog
     return {
       name: (parsed.name as string) || "",
       biography: (parsed.bio as string) || (parsed.biography as string) || null,
-      deathDateHijri: (parsed.death as string) || null,
-      birthDateHijri: (parsed.birth as string) || null,
+      deathDateHijri: normalizeYearField((parsed.death as string) || null),
+      birthDateHijri: normalizeYearField((parsed.birth as string) || null),
     };
   } catch (error) {
     console.warn(`  Warning: Could not fetch author ${authorId}:`, error);
@@ -244,6 +244,14 @@ function detectContentFlags(text: string) {
 
 function toWesternDigits(s: string): string {
   return s.replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+}
+
+/** Convert Arabic-Indic → Western, extract first numeric year, discard "بعد" etc. */
+function normalizeYearField(raw: string | null): string | null {
+  if (!raw) return null;
+  const western = toWesternDigits(raw);
+  const match = western.match(/\d+/);
+  return match ? match[0] : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -489,7 +497,7 @@ const TURATH_CATEGORIES: Record<number, string> = {
   9: "الفقه المالكي",
   10: "الفقه الشافعي",
   11: "الفقه الحنبلي",
-  12: "فقه عام",
+  12: "الفقه العام", // same as 7 — Turath uses both IDs for general fiqh
   13: "أصول الفقه والقواعد الفقهية",
   14: "اللغة العربية",
   15: "البلاغة",
@@ -737,18 +745,28 @@ export async function importTurathBook(
     // 5. Ensure Category in DB
     console.log("\nStep 5: Ensuring category...");
     const categoryName = getCategoryName(content.meta.cat_id);
+    const catCode = String(content.meta.cat_id);
 
     let categoryRecord = await prisma.category.findUnique({ where: { nameArabic: categoryName } });
     if (!categoryRecord) {
       categoryRecord = await prisma.category.create({
         data: {
           nameArabic: categoryName,
-          code: String(content.meta.cat_id),
+          code: catCode,
         },
       });
       console.log(`  Created category: ${categoryName}`);
     } else {
-      console.log(`  Category exists: ${categoryName}`);
+      // Update code if missing
+      if (!categoryRecord.code) {
+        categoryRecord = await prisma.category.update({
+          where: { id: categoryRecord.id },
+          data: { code: catCode },
+        });
+        console.log(`  Updated category code: ${categoryName} → ${catCode}`);
+      } else {
+        console.log(`  Category exists: ${categoryName}`);
+      }
     }
 
     // 6. Build TOC with mapped page numbers
