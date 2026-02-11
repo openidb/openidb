@@ -9,7 +9,7 @@ export const BookIdParam = z.object({
 
 export const BookPageParam = z.object({
   id: z.string().max(50).openapi({ example: "123" }),
-  page: z.coerce.number().int().min(1).max(999999).openapi({ example: 1, description: "Page number" }),
+  page: z.coerce.number().int().min(0).max(999999).openapi({ example: 0, description: "Page number (0-based)" }),
 });
 
 // --- Queries ---
@@ -41,11 +41,14 @@ export const BookSummary = z.object({
   totalVolumes: z.number(),
   totalPages: z.number().nullable(),
   publicationYearHijri: z.string().nullable(),
-  shamelaUrl: z.string(),
+  publicationYearGregorian: z.string().nullable(),
+  referenceUrl: z.string(),
   author: z.object({
     id: z.string(),
     nameArabic: z.string(),
     nameLatin: z.string(),
+    deathDateHijri: z.string().nullable(),
+    deathDateGregorian: z.string().nullable(),
   }).nullable(),
   category: z.object({
     id: z.number(),
@@ -76,12 +79,13 @@ export const BookDetailResponse = z.object({
     verificationStatus: z.string().nullable(),
     descriptionHtml: z.string().nullable(),
     summary: z.string().nullable(),
-    shamelaUrl: z.string(),
+    referenceUrl: z.string(),
     author: z.object({
       id: z.string(),
       nameArabic: z.string(),
       nameLatin: z.string(),
       deathDateHijri: z.string().nullable(),
+      deathDateGregorian: z.string().nullable(),
     }).nullable(),
     category: z.object({
       id: z.number(),
@@ -110,7 +114,7 @@ export const PageSchema = z.object({
   hasHadith: z.boolean(),
   hasQuran: z.boolean(),
   sourceUrl: z.string().nullable(),
-  shamelaUrl: z.string(),
+  referenceUrl: z.string(),
 });
 
 export const PageDetailResponse = z.object({

@@ -15,7 +15,7 @@ import {
   keywordSearchAyahsES,
   keywordSearchHadithsES,
 } from "../../search/elasticsearch-search";
-import { generateShamelaPageUrl, generateQuranUrl } from "../../utils/source-urls";
+import { generatePageReferenceUrl, generateQuranUrl } from "../../utils/source-urls";
 import { EXCLUDED_BOOK_IDS, AUTHOR_SCORE_THRESHOLD, DEFAULT_AYAH_SIMILARITY_CUTOFF, FETCH_LIMIT_CAP, AYAH_PRE_RERANK_CAP, HADITH_PRE_RERANK_CAP } from "./config";
 import { shouldSkipSemanticSearch, getDynamicSimilarityThreshold } from "./query-utils";
 import { mergeWithRRFGeneric } from "./fusion";
@@ -81,7 +81,7 @@ export async function semanticSearch(
         textSnippet: payload.textSnippet,
         highlightedSnippet: payload.textSnippet,
         semanticScore: result.score,
-        shamelaUrl: generateShamelaPageUrl(payload.bookId, payload.pageNumber),
+        referenceUrl: generatePageReferenceUrl(payload.bookId, payload.pageNumber),
       };
     })
     .filter(r => !EXCLUDED_BOOK_IDS.has(r.bookId))

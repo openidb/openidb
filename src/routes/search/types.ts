@@ -15,7 +15,7 @@ export interface SearchResult {
   highlightedSnippet: string;
   matchType: "semantic" | "keyword" | "both";
   urlPageIndex?: string;
-  shamelaUrl: string;
+  referenceUrl: string;
   contentTranslation?: string | null;
   book: {
     id: string;
@@ -91,7 +91,7 @@ export interface RankedResult {
   bm25Score?: number;
   fusedScore?: number;
   urlPageIndex?: string;
-  shamelaUrl?: string;
+  referenceUrl?: string;
   contentTranslation?: string | null;
 }
 

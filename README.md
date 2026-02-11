@@ -204,7 +204,7 @@ bun run pipelines/import/import-tafsirs.ts --all       # All tafsirs (27 edition
 bun run pipelines/import/import-tafsirs.ts --lang=en   # By language
 bun run pipelines/import/import-tafsirs.ts --edition=en-al-jalalayn  # Single edition
 bun run pipelines/import/scrape-sunnah.ts              # Hadith collections from sunnah.com
-bun run pipelines/import/import-epubs.ts               # Books from Shamela EPUBs
+bun run pipelines/import/import-turath.ts --id=26       # Books from Turath API
 ```
 
 Additional pipelines:

@@ -82,7 +82,7 @@ authorsRoutes.openapi(listAuthors, async (c) => {
     total,
     limit,
     offset,
-    _sources: [...SOURCES.shamela],
+    _sources: [...SOURCES.turath],
   }, 200);
 });
 
@@ -122,6 +122,6 @@ authorsRoutes.openapi(getAuthor, async (c) => {
 
   return c.json({
     author,
-    _sources: [...SOURCES.shamela],
+    _sources: [...SOURCES.turath],
   }, 200);
 });

@@ -12,7 +12,7 @@ import {
   ES_AYAHS_INDEX,
 } from "./elasticsearch";
 import { normalizeArabicText } from "../embeddings";
-import { generateSunnahUrl, generateQuranUrl, generateShamelaPageUrl } from "../utils/source-urls";
+import { generateSunnahUrl, generateQuranUrl, generatePageReferenceUrl } from "../utils/source-urls";
 import { isArabicQuery, prepareSearchTerms, parseSearchQuery } from "../routes/search/query-utils";
 import type { QueryDslQueryContainer, SearchHit } from "@elastic/elasticsearch/lib/api/types";
 import type { RankedResult, HadithRankedResult, AyahRankedResult, ParsedQuery } from "../routes/search/types";
@@ -280,7 +280,7 @@ function mapPageHitToResult(
     tsRank: hit._score || 0,
     bm25Score: hit._score || 0,
     urlPageIndex: source.url_page_index,
-    shamelaUrl: generateShamelaPageUrl(source.book_id, source.page_number),
+    referenceUrl: generatePageReferenceUrl(source.book_id, source.page_number),
   };
 }
 

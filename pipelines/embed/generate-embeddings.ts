@@ -61,7 +61,7 @@ console.log(`Hadiths collection: ${HADITHS_COLLECTION}`);
  * Generate a deterministic point ID from book and page identifiers
  */
 function generatePointId(
-  bookId: string,  // Now string (shamela book ID is primary key)
+  bookId: string,
   pageNumber: number,
   volumeNumber: number
 ): string {
