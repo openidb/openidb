@@ -8,3 +8,9 @@ data/books/*.epub
 *.log
 pipelines/import/turath-catalog.json
 pipelines/import/batch-progress.json
+pipelines/import/author-batches/
+pipelines/import/dictionary/extraction-batches/
+*.sqlite
+pipelines/import/KhorsiCorpus.sql*
+pipelines/knowledge-graph/data/
+pipelines/knowledge-graph/data-backup/
