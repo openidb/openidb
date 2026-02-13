@@ -1,6 +1,6 @@
 # openidb
 
-REST API for Islamic texts — Quran, Hadith, and classical Arabic books — with hybrid search combining semantic similarity, keyword matching, knowledge graphs, and LLM reranking.
+REST API for Islamic texts — Quran, Hadith, classical Arabic books, and Arabic dictionaries — with hybrid search combining semantic similarity, keyword matching, knowledge graphs, and LLM reranking.
 
 Built with Hono, PostgreSQL, Qdrant, Elasticsearch, and Neo4j.
 
@@ -8,7 +8,8 @@ Built with Hono, PostgreSQL, Qdrant, Elasticsearch, and Neo4j.
 
 - **Quran** — 114 surahs, 6,236 ayahs (Uthmani script), 500+ translation editions across 90+ languages, 27 tafsirs in 6 languages
 - **Hadith** — 17 collections (Bukhari, Muslim, Abu Dawud, Tirmidhi, Nasa'i, Ibn Majah, Ahmad, Malik, Darimi, Riyad as-Salihin, Al-Adab Al-Mufrad, Ash-Shama'il, Mishkat al-Masabih, Bulugh al-Maram, Nawawi's 40, 40 Qudsi, Hisn al-Muslim)
-- **Books** — Classical Arabic texts from [Turath.io](https://turath.io/) (same corpus as Maktaba Shamela) — full-text HTML pages, volume/printed page numbers, table of contents, scanned PDFs, authors, categories, publishers, and editors
+- **Books** — Classical Arabic texts from [Turath.io](https://turath.io/) — full-text HTML pages, volume/printed page numbers, table of contents, scanned PDFs, authors, categories, publishers, and editors
+- **Dictionary** — 43 Arabic dictionaries (~115K entries, 155K+ sub-entries) including Lisan al-Arab, Taj al-Arus, al-Qamus, al-Wasit, and more — with root derivation (~457K word-root mappings), vocalized headword matching, and 7-tier lookup fallback
 
 ## API
 
@@ -37,6 +38,10 @@ Base URL: `http://localhost:4000`
 | `GET /api/books/authors/:id` | Author with bibliography |
 | `GET /api/books/categories` | Category tree |
 | `GET /api/books/categories/:id` | Category with books |
+| `GET /api/dictionary/lookup/:word` | Look up a word across all dictionaries |
+| `GET /api/dictionary/root/:root` | Word family for a root |
+| `GET /api/dictionary/resolve/:word` | Resolve a word to its root |
+| `GET /api/dictionary/sources` | List available dictionary sources |
 | `GET /api/stats` | Database counts |
 | `GET /api/health` | Health check |
 
@@ -180,12 +185,18 @@ src/
 │   ├── books.ts
 │   ├── authors.ts
 │   ├── categories.ts
+│   ├── centuries.ts
+│   ├── dictionary.ts             # Dictionary lookup, root family, resolve
 │   ├── transcribe.ts
 │   └── stats.ts
-└── utils/
-    ├── pagination.ts
-    ├── source-urls.ts
-    └── timing.ts
+├── utils/
+│   ├── arabic-text.ts             # Root extraction, normalization, vocalized matching
+│   ├── pagination.ts
+│   ├── source-urls.ts
+│   └── timing.ts
+└── schemas/
+    ├── dictionary.ts              # Dictionary API schemas
+    └── ...
 
 prisma/
 └── schema.prisma               # Database schema
@@ -216,6 +227,22 @@ bun run pipelines/import/import-turath.ts --id=26 --skip-transliteration        
 ```
 
 The Turath pipeline fetches book text, metadata, and PDFs from `api.turath.io` and `files.turath.io`. PDFs are downloaded and stored in RustFS (S3-compatible storage) and served via presigned URLs. See [scrapers/books/README.md](https://github.com/openidb/scrapers/blob/main/books/README.md) for the full pipeline documentation.
+
+```bash
+# Dictionary (requires books to be imported first)
+bun run pipelines/import/dictionary/import-entries.ts \
+  --book-id=23193 --slug=mukhtar --name-ar="مختار الصحاح" --name-en="Mukhtar al-Sihah" \
+  --entry-pattern=spaced                                                          # Regex-based entry detection
+bun run pipelines/import/dictionary/extract-definitions.ts --slug=muhit            # LLM-based extraction (Claude)
+bun run pipelines/import/dictionary/import-extracted-definitions.ts --slug=muhit   # Import extracted definitions
+bun run pipelines/import/dictionary/split-sub-entries.ts --all                     # Split entries into sub-entries
+bun run pipelines/import/dictionary/import-roots.ts                               # Arramooz root database
+bun run pipelines/import/dictionary/import-taj-derivatives.ts                     # Taj al-Arus derivatives
+bun run pipelines/import/dictionary/generate-derived-forms.ts                     # Morphological pattern generation
+bun run pipelines/import/dictionary/backfill-vocalized.ts                         # Vocalized headword backfill
+```
+
+See [scrapers/dictionary/README.md](https://github.com/openidb/scrapers/blob/main/dictionary/README.md) for the full dictionary list, extraction pipelines, and root derivation details.
 
 Additional pipelines:
 
