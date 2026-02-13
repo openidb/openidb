@@ -3,6 +3,7 @@ import { PaginationQuery, SourceSchema } from "./common";
 
 export const CategoryListQuery = z.object({
   flat: z.enum(["true", "false"]).optional().openapi({ example: "false", description: "Return flat list instead of tree" }),
+  century: z.string().optional().openapi({ example: "3,7", description: "Filter counts by century (comma-separated)" }),
 });
 
 export const CategoryIdParam = z.object({

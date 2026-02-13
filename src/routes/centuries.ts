@@ -29,11 +29,16 @@ const AuthorCenturyListResponse = z.object({
   _sources: z.array(SourceSchema),
 }).openapi("AuthorCenturyList");
 
+const CenturyListQuery = z.object({
+  categoryId: z.string().optional().openapi({ example: "1,5", description: "Filter counts by category ID (comma-separated)" }),
+});
+
 const listCenturies = createRoute({
   method: "get",
   path: "/",
   tags: ["Books"],
   summary: "Get centuries with book counts",
+  request: { query: CenturyListQuery },
   responses: {
     200: {
       content: { "application/json": { schema: CenturyListResponse } },
@@ -45,33 +50,93 @@ const listCenturies = createRoute({
 export const centuriesRoutes = new OpenAPIHono();
 
 centuriesRoutes.openapi(listCenturies, async (c) => {
-  if (centuryCache && Date.now() < centuryCache.expiry) {
-    return c.json(centuryCache.data as any, 200);
+  const { categoryId } = c.req.valid("query");
+  const categoryFilter = categoryId
+    ? categoryId.split(",").map(Number).filter((n) => !isNaN(n))
+    : [];
+
+  // Unfiltered path — use cache
+  if (categoryFilter.length === 0) {
+    if (centuryCache && Date.now() < centuryCache.expiry) {
+      return c.json(centuryCache.data as any, 200);
+    }
+
+    const rows = await prisma.$queryRaw<{ century: number; books_count: bigint }[]>`
+      SELECT
+        CEIL(CAST(a.death_date_hijri AS DOUBLE PRECISION) / 100)::int AS century,
+        COUNT(b.id)::bigint AS books_count
+      FROM authors a
+      JOIN books b ON b.author_id = a.id
+      WHERE a.death_date_hijri ~ '^[0-9]+$'
+      GROUP BY century
+      ORDER BY century
+    `;
+
+    const centuries = rows.map((r) => ({
+      century: Number(r.century),
+      booksCount: Number(r.books_count),
+    }));
+
+    const result = {
+      centuries,
+      _sources: [...SOURCES.turath],
+    };
+
+    centuryCache = { data: result, expiry: Date.now() + CACHE_TTL_MS };
+    return c.json(result, 200);
   }
 
-  const rows = await prisma.$queryRaw<{ century: number; books_count: bigint }[]>`
-    SELECT
-      CEIL(CAST(a.death_date_hijri AS DOUBLE PRECISION) / 100)::int AS century,
-      COUNT(b.id)::bigint AS books_count
-    FROM authors a
-    JOIN books b ON b.author_id = a.id
-    WHERE a.death_date_hijri ~ '^[0-9]+$'
-    GROUP BY century
-    ORDER BY century
-  `;
+  // Filtered path — get filtered counts, then merge with full list
+  const [filteredRows, fullResult] = await Promise.all([
+    prisma.$queryRaw<{ century: number; books_count: bigint }[]>`
+      SELECT
+        CEIL(CAST(a.death_date_hijri AS DOUBLE PRECISION) / 100)::int AS century,
+        COUNT(b.id)::bigint AS books_count
+      FROM authors a
+      JOIN books b ON b.author_id = a.id
+      WHERE a.death_date_hijri ~ '^[0-9]+$'
+        AND b.category_id = ANY(${categoryFilter}::int[])
+      GROUP BY century
+      ORDER BY century
+    `,
+    // Get full unfiltered list (from cache or fresh)
+    (async () => {
+      if (centuryCache && Date.now() < centuryCache.expiry) {
+        return centuryCache.data as { centuries: { century: number; booksCount: number }[] };
+      }
+      const rows = await prisma.$queryRaw<{ century: number; books_count: bigint }[]>`
+        SELECT
+          CEIL(CAST(a.death_date_hijri AS DOUBLE PRECISION) / 100)::int AS century,
+          COUNT(b.id)::bigint AS books_count
+        FROM authors a
+        JOIN books b ON b.author_id = a.id
+        WHERE a.death_date_hijri ~ '^[0-9]+$'
+        GROUP BY century
+        ORDER BY century
+      `;
+      const centuries = rows.map((r) => ({
+        century: Number(r.century),
+        booksCount: Number(r.books_count),
+      }));
+      const result = { centuries, _sources: [...SOURCES.turath] };
+      centuryCache = { data: result, expiry: Date.now() + CACHE_TTL_MS };
+      return result;
+    })(),
+  ]);
 
-  const centuries = rows.map((r) => ({
-    century: Number(r.century),
-    booksCount: Number(r.books_count),
+  const filteredMap = new Map(
+    filteredRows.map((r) => [Number(r.century), Number(r.books_count)])
+  );
+
+  const centuries = fullResult.centuries.map((c) => ({
+    century: c.century,
+    booksCount: filteredMap.get(c.century) ?? 0,
   }));
 
-  const result = {
+  return c.json({
     centuries,
     _sources: [...SOURCES.turath],
-  };
-
-  centuryCache = { data: result, expiry: Date.now() + CACHE_TTL_MS };
-  return c.json(result, 200);
+  }, 200);
 });
 
 const listAuthorCenturies = createRoute({
