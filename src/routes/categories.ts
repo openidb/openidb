@@ -60,7 +60,44 @@ const getCategory = createRoute({
 export const categoriesRoutes = new OpenAPIHono();
 
 categoriesRoutes.openapi(listCategories, async (c) => {
-  const { flat } = c.req.valid("query");
+  const { flat, century } = c.req.valid("query");
+  const centuryFilter = century
+    ? century.split(",").map(Number).filter((n) => !isNaN(n))
+    : [];
+
+  // When century filter is active, skip cache and run filtered SQL
+  if (centuryFilter.length > 0 && flat === "true") {
+    const rows = await prisma.$queryRaw<
+      { id: number; code: string | null; name_arabic: string; name_english: string | null; parent_id: number | null; books_count: number }[]
+    >`
+      SELECT c.id, c.code, c.name_arabic, c.name_english, c.parent_id,
+             COALESCE(bc.cnt, 0)::int AS books_count
+      FROM categories c
+      LEFT JOIN (
+        SELECT b.category_id, COUNT(*)::int AS cnt
+        FROM books b
+        JOIN authors a ON a.id = b.author_id
+        WHERE a.death_date_hijri ~ '^[0-9]+$'
+          AND CEIL(CAST(a.death_date_hijri AS DOUBLE PRECISION) / 100)::int = ANY(${centuryFilter}::int[])
+        GROUP BY b.category_id
+      ) bc ON bc.category_id = c.id
+      ORDER BY c.name_arabic
+    `;
+
+    const result = {
+      categories: rows.map((r) => ({
+        id: r.id,
+        code: r.code,
+        nameArabic: r.name_arabic,
+        nameEnglish: r.name_english,
+        parentId: r.parent_id,
+        booksCount: Number(r.books_count),
+      })),
+      _sources: [...SOURCES.turath],
+    };
+    return c.json(result, 200);
+  }
+
   const cacheKey = flat === "true" ? "flat" : "tree";
 
   const cached = getCached<{ categories: unknown; _sources: unknown }>(cacheKey);
