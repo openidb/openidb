@@ -18,7 +18,7 @@ import { prisma } from "../../src/db";
 import { writeFileSync } from "fs";
 import { join } from "path";
 
-const PILOT_SURAHS = [28, 108, 112];
+const ALL_SURAHS = Array.from({ length: 114 }, (_, i) => i + 1);
 const OUTPUT_DIR = join(import.meta.dir, "data");
 
 interface AyahGroup {
@@ -121,11 +121,11 @@ async function dumpSurah(surahNumber: number): Promise<SurahDump> {
 async function main() {
   console.log("Dumping combined ayah + tafsir data for extraction");
   console.log("=".repeat(60));
-  console.log(`Pilot surahs: ${PILOT_SURAHS.join(", ")}`);
+  console.log(`Surahs: 1-114 (${ALL_SURAHS.length} total)`);
   console.log(`Output dir: ${OUTPUT_DIR}`);
   console.log("=".repeat(60));
 
-  for (const surahNumber of PILOT_SURAHS) {
+  for (const surahNumber of ALL_SURAHS) {
     const dump = await dumpSurah(surahNumber);
     const outPath = join(OUTPUT_DIR, `surah-${surahNumber}.json`);
     writeFileSync(outPath, JSON.stringify(dump, null, 2), "utf-8");

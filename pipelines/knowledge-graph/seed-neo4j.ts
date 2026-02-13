@@ -10,6 +10,7 @@
  * Usage: bun run scripts/knowledge-graph/seed-neo4j.ts [--clear]
  */
 
+import "../env";
 import neo4jDriver from "../../src/graph/driver";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
@@ -74,12 +75,12 @@ async function main() {
 
     // Read all extraction files
     const extractionFiles = readdirSync(DATA_DIR)
-      .filter((f) => f.startsWith("extracted-") && f.endsWith(".json"))
+      .filter((f) => f.startsWith("extracted-") && f.endsWith(".json") && !f.includes("-part"))
       .sort();
 
     // Read all surah dump files (for AyahGroup text)
     const surahDumpFiles = readdirSync(DATA_DIR)
-      .filter((f) => f.startsWith("surah-") && f.endsWith(".json"))
+      .filter((f) => f.startsWith("surah-") && f.endsWith(".json") && !f.includes("-part"))
       .sort();
 
     if (extractionFiles.length === 0) {
@@ -205,19 +206,20 @@ async function main() {
         mentionedInCount++;
       } else {
         // Dynamic relationship types between entities
-        // Use APOC to create dynamic relationship types
-        // Store sources as JSON string on the relationship
+        // Cypher doesn't support parameterized relationship types,
+        // so we sanitize and interpolate the type into the query string
+        const safeType = rel.type.replace(/[^A-Za-z0-9_]/g, "_");
         await session.run(
           `
           MATCH (a:Entity {id: $source})
           MATCH (b:Entity {id: $target})
-          CALL apoc.merge.relationship(a, $relType, {description: $description, sources: $sources}, {}, b, {}) YIELD rel
-          RETURN rel
+          MERGE (a)-[r:${safeType}]->(b)
+          SET r.description = $description,
+              r.sources = $sources
           `,
           {
             source: rel.source,
             target: rel.target,
-            relType: rel.type,
             description: rel.description || "",
             sources: JSON.stringify(rel.sources || []),
           }

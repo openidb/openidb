@@ -32,7 +32,7 @@ export const SearchQuery = z.object({
   refineAyahRerank: z.coerce.number().int().min(5).max(25).default(12),
   refineHadithRerank: z.coerce.number().int().min(5).max(25).default(15),
   queryExpansionModel: z.string().default("gemini-flash"),
-  includeGraph: z.enum(["true", "false"]).default("true"),
+  includeGraph: z.enum(["true", "false"]).default("false"),
 });
 
 export const SearchResponse = z.object({
