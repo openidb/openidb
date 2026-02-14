@@ -1,6 +1,8 @@
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
+import { stat } from "fs/promises";
 import { prisma } from "../db";
 import { generateQuranUrl, generateTafsirSourceUrl, generateTranslationSourceUrl, SOURCES } from "../utils/source-urls";
+import { audioFilePath } from "../utils/audio-storage";
 import { ErrorResponse } from "../schemas/common";
 import {
   SurahNumberParam, TafsirPathParam, TranslationPathParam,
@@ -8,6 +10,7 @@ import {
   SurahListResponse, SurahDetailResponse, AyahListResponse,
   TafsirListResponse, TafsirResponse,
   TranslationListResponse, TranslationResponse,
+  ReciterListQuery, ReciterListResponse, AudioPathParam, AudioQuery,
 } from "../schemas/quran";
 
 // --- Route definitions ---
@@ -115,6 +118,41 @@ const getTranslation = createRoute({
     200: {
       content: { "application/json": { schema: TranslationResponse } },
       description: "Translation entries for the ayah",
+    },
+  },
+});
+
+const listReciters = createRoute({
+  method: "get",
+  path: "/reciters",
+  tags: ["Quran"],
+  summary: "List available reciters",
+  request: { query: ReciterListQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: ReciterListResponse } },
+      description: "Available reciters",
+    },
+  },
+});
+
+const getAudio = createRoute({
+  method: "get",
+  path: "/audio/{surah}/{ayah}",
+  tags: ["Quran"],
+  summary: "Stream ayah audio",
+  request: {
+    params: AudioPathParam,
+    query: AudioQuery,
+  },
+  responses: {
+    200: {
+      content: { "audio/mpeg": { schema: { type: "string", format: "binary" } } },
+      description: "MP3 audio file",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Audio file not found",
     },
   },
 });
@@ -298,4 +336,88 @@ quranRoutes.openapi(getTranslation, async (c) => {
     })),
     _sources: [...SOURCES.quranTranslation],
   }, 200);
+});
+
+// --- Reciters & Audio ---
+
+quranRoutes.openapi(listReciters, async (c) => {
+  const { qiraat, language } = c.req.valid("query");
+  const where: Record<string, unknown> = {};
+  if (qiraat) where.qiraat = qiraat;
+  if (language) where.language = language;
+
+  const reciters = await prisma.quranReciter.findMany({
+    where,
+    orderBy: [{ source: "asc" }, { nameEnglish: "asc" }],
+    select: {
+      id: true, slug: true, nameArabic: true, nameEnglish: true,
+      style: true, qiraat: true, bitrate: true, totalAyahs: true,
+      language: true, source: true,
+    },
+  });
+
+  c.header("Cache-Control", "public, max-age=3600");
+  return c.json({ reciters, count: reciters.length }, 200);
+});
+
+quranRoutes.openapi(getAudio, async (c) => {
+  const { surah, ayah } = c.req.valid("param");
+  const { reciter: reciterSlug } = c.req.valid("query");
+
+  // Resolve reciter — use provided slug or fall back to first complete reciter
+  let slug = reciterSlug;
+  if (!slug) {
+    const defaultReciter = await prisma.quranReciter.findFirst({
+      where: { totalAyahs: 6236 },
+      orderBy: { id: "asc" },
+      select: { slug: true },
+    });
+    if (!defaultReciter) {
+      return c.json({ error: "No complete reciters available" }, 404);
+    }
+    slug = defaultReciter.slug;
+  }
+
+  const filePath = audioFilePath(slug, surah, ayah);
+
+  let fileStat;
+  try {
+    fileStat = await stat(filePath);
+  } catch {
+    return c.json({ error: "Audio file not found" }, 404);
+  }
+
+  const file = Bun.file(filePath);
+  const rangeHeader = c.req.header("Range");
+
+  if (rangeHeader) {
+    const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+    if (match) {
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : fileStat.size - 1;
+      const chunkSize = end - start + 1;
+
+      return new Response(file.slice(start, end + 1), {
+        status: 206,
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Content-Length": String(chunkSize),
+          "Content-Range": `bytes ${start}-${end}/${fileStat.size}`,
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "public, max-age=86400, immutable",
+        },
+      }) as unknown as ReturnType<typeof c.json>;
+    }
+  }
+
+  // Full file response
+  return new Response(file, {
+    status: 200,
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "Content-Length": String(fileStat.size),
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "public, max-age=86400, immutable",
+    },
+  }) as unknown as ReturnType<typeof c.json>;
 });

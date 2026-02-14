@@ -205,7 +205,7 @@ const getPagePdf = createRoute({
 export const booksRoutes = new OpenAPIHono();
 
 booksRoutes.openapi(listBooks, async (c) => {
-  const { limit, offset, search, authorId, categoryId, century } = c.req.valid("query");
+  const { limit, offset, search, authorId, categoryId, century, bookTitleLang } = c.req.valid("query");
 
   const where: Record<string, unknown> = {};
   if (search) {
@@ -310,6 +310,15 @@ booksRoutes.openapi(listBooks, async (c) => {
           category: {
             select: { id: true, nameArabic: true, nameEnglish: true },
           },
+          ...(bookTitleLang && bookTitleLang !== "none" && bookTitleLang !== "transliteration"
+            ? {
+                titleTranslations: {
+                  where: { language: bookTitleLang },
+                  select: { title: true },
+                  take: 1,
+                },
+              }
+            : {}),
         },
       })
     : [];
@@ -319,12 +328,18 @@ booksRoutes.openapi(listBooks, async (c) => {
   books.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
   return c.json({
-    books: books.map((b) => ({
-      ...b,
-      displayDate: b.author?.deathDateHijri || b.publicationYearHijri || null,
-      displayDateType: b.author?.deathDateHijri ? "death" : b.publicationYearHijri ? "publication" : null,
-      referenceUrl: generateBookReferenceUrl(b.id),
-    })),
+    books: books.map((b) => {
+      const { titleTranslations, ...rest } = b as typeof b & {
+        titleTranslations?: { title: string }[];
+      };
+      return {
+        ...rest,
+        titleTranslated: titleTranslations?.[0]?.title || null,
+        displayDate: rest.author?.deathDateHijri || rest.publicationYearHijri || null,
+        displayDateType: rest.author?.deathDateHijri ? "death" : rest.publicationYearHijri ? "publication" : null,
+        referenceUrl: generateBookReferenceUrl(rest.id),
+      };
+    }),
     total,
     limit,
     offset,

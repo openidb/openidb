@@ -80,6 +80,72 @@ const getHadith = createRoute({
   },
 });
 
+// --- Helpers ---
+
+// Extra hadith fields to include in select queries (HadithDB + Dorar.net metadata)
+const EXTRA_HADITH_FIELDS_SELECT = {
+  source: true,
+  isnad: true,
+  matn: true,
+  gradeText: true,
+  grade: true,
+  gradeExplanation: true,
+  graderName: true,
+  narratorName: true,
+  sourceBookName: true,
+  numberOrPage: true,
+  takhrij: true,
+  categories: true,
+  sharhText: true,
+} as const;
+
+// Sunnah.com collection slugs — only these get sunnahComUrl
+const SUNNAH_COM_SLUGS = new Set([
+  "bukhari", "muslim", "abudawud", "tirmidhi", "nasai", "ibnmajah",
+  "ahmad", "malik", "darimi", "riyadussalihin", "adab", "shamail",
+  "mishkat", "bulugh", "nawawi40", "qudsi40", "hisn",
+]);
+
+// HadithDB collection slugs — imported from hadithunlocked.com
+const HADITHDB_SLUGS = new Set([
+  "mustadrak", "ibn-hibban", "mujam-kabir", "sunan-kubra-bayhaqi",
+  "sunan-kubra-nasai", "suyuti", "ahmad-zuhd",
+]);
+
+function isFromSunnah(slug: string): boolean {
+  return SUNNAH_COM_SLUGS.has(slug);
+}
+
+function getSourcesForSlug(slug: string) {
+  if (isFromSunnah(slug)) return [...SOURCES.sunnah];
+  if (HADITHDB_SLUGS.has(slug)) return [...SOURCES.hadithUnlocked];
+  return [...SOURCES.sunnah, ...SOURCES.hadithUnlocked];
+}
+
+function formatHadithForList(h: any, slug: string, bookNumber: number) {
+  return {
+    hadithNumber: h.hadithNumber,
+    textArabic: h.textArabic,
+    contentHash: h.contentHash,
+    chapterArabic: h.chapterArabic,
+    chapterEnglish: h.chapterEnglish,
+    sunnahComUrl: isFromSunnah(slug) ? generateSunnahUrl(slug, h.hadithNumber, bookNumber) : null,
+    source: h.source ?? null,
+    isnad: h.isnad ?? null,
+    matn: h.matn ?? null,
+    gradeText: h.gradeText ?? null,
+    grade: h.grade ?? null,
+    gradeExplanation: h.gradeExplanation ?? null,
+    graderName: h.graderName ?? null,
+    narratorName: h.narratorName ?? null,
+    sourceBookName: h.sourceBookName ?? null,
+    numberOrPage: h.numberOrPage ?? null,
+    takhrij: h.takhrij ?? null,
+    categories: h.categories ?? null,
+    sharhText: h.sharhText ?? null,
+  };
+}
+
 // --- Handlers ---
 
 export const hadithRoutes = new OpenAPIHono();
@@ -103,7 +169,7 @@ hadithRoutes.openapi(listCollections, async (c) => {
       nameArabic: col.nameArabic,
       booksCount: col._count.books,
     })),
-    _sources: [...SOURCES.sunnah],
+    _sources: [...SOURCES.sunnah, ...SOURCES.hadithUnlocked],
   }, 200);
 });
 
@@ -144,7 +210,7 @@ hadithRoutes.openapi(getCollection, async (c) => {
         hadithCount: book._count.hadiths,
       })),
     },
-    _sources: [...SOURCES.sunnah],
+    _sources: getSourcesForSlug(slug),
   }, 200);
 });
 
@@ -179,6 +245,7 @@ hadithRoutes.openapi(getHadithBook, async (c) => {
         contentHash: true,
         chapterArabic: true,
         chapterEnglish: true,
+        ...EXTRA_HADITH_FIELDS_SELECT,
       },
     }),
     prisma.hadith.count({ where: { bookId: book.id } }),
@@ -186,14 +253,11 @@ hadithRoutes.openapi(getHadithBook, async (c) => {
 
   return c.json({
     book,
-    hadiths: hadiths.map((h) => ({
-      ...h,
-      sunnahComUrl: generateSunnahUrl(slug, h.hadithNumber, bookNumber),
-    })),
+    hadiths: hadiths.map((h) => formatHadithForList(h, slug, bookNumber)),
     total,
     limit,
     offset,
-    _sources: [...SOURCES.sunnah],
+    _sources: getSourcesForSlug(slug),
   }, 200);
 });
 
@@ -212,6 +276,7 @@ hadithRoutes.openapi(getHadith, async (c) => {
       contentHash: true,
       chapterArabic: true,
       chapterEnglish: true,
+      ...EXTRA_HADITH_FIELDS_SELECT,
       book: {
         select: {
           bookNumber: true,
@@ -230,8 +295,9 @@ hadithRoutes.openapi(getHadith, async (c) => {
   return c.json({
     hadith: {
       ...hadith,
-      sunnahComUrl: generateSunnahUrl(slug, hadith.hadithNumber, hadith.book.bookNumber),
+      categories: hadith.categories as Array<{ id: number; name: string }> | null,
+      sunnahComUrl: isFromSunnah(slug) ? generateSunnahUrl(slug, hadith.hadithNumber, hadith.book.bookNumber) : null,
     },
-    _sources: [...SOURCES.sunnah],
+    _sources: getSourcesForSlug(slug),
   }, 200);
 });

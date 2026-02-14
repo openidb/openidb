@@ -25,7 +25,7 @@ export const SearchQuery = z.object({
   refine: z.enum(["true", "false"]).default("false"),
   refineSimilarityCutoff: z.coerce.number().min(0).max(1).default(REFINE_SIMILARITY_CUTOFF),
   refineOriginalWeight: z.coerce.number().min(0.5).max(1.0).default(1.0),
-  refineExpandedWeight: z.coerce.number().min(0.3).max(1.0).default(0.7),
+  refineExpandedWeight: z.coerce.number().min(0.3).max(1.0).default(1.0),
   refineBookPerQuery: z.coerce.number().int().min(10).max(60).default(30),
   refineAyahPerQuery: z.coerce.number().int().min(10).max(60).default(30),
   refineHadithPerQuery: z.coerce.number().int().min(10).max(60).default(30),

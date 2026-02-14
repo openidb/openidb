@@ -7,7 +7,9 @@ Built with Hono, PostgreSQL, Qdrant, Elasticsearch, and Neo4j.
 ## Data
 
 - **Quran** — 114 surahs, 6,236 ayahs (Uthmani script), 500+ translation editions across 90+ languages, 27 tafsirs in 6 languages
-- **Hadith** — 17 collections (Bukhari, Muslim, Abu Dawud, Tirmidhi, Nasa'i, Ibn Majah, Ahmad, Malik, Darimi, Riyad as-Salihin, Al-Adab Al-Mufrad, Ash-Shama'il, Mishkat al-Masabih, Bulugh al-Maram, Nawawi's 40, 40 Qudsi, Hisn al-Muslim)
+- **Hadith** — 24 collections (166,964 hadiths) from two sources:
+  - **[sunnah.com](https://sunnah.com/)** — 17 collections (49,618 hadiths): Bukhari, Muslim, Abu Dawud, Tirmidhi, Nasa'i, Ibn Majah, Ahmad, Malik, Darimi, Riyad as-Salihin, Al-Adab Al-Mufrad, Ash-Shama'il, Mishkat al-Masabih, Bulugh al-Maram, Nawawi's 40, 40 Qudsi, Hisn al-Muslim
+  - **[hadithunlocked.com](https://hadithunlocked.com/)** — 7 collections (117,346 hadiths) with full tashkeel, isnad/matn separation, grading, and English translations: Mustadrak al-Hakim, Sahih Ibn Hibban, Al-Mu'jam al-Kabir, Sunan al-Kubra (Bayhaqi), Sunan al-Kubra (Nasa'i), Jam' al-Jawami' (Suyuti), Al-Zuhd (Ahmad)
 - **Books** — Classical Arabic texts from [Turath.io](https://turath.io/) — full-text HTML pages, volume/printed page numbers, table of contents, scanned PDFs, authors, categories, publishers, and editors
 - **Dictionary** — 43 Arabic dictionaries (~115K entries, 155K+ sub-entries) including Lisan al-Arab, Taj al-Arus, al-Qamus, al-Wasit, and more — with root derivation (~457K word-root mappings), vocalized headword matching, and 7-tier lookup fallback
 
@@ -215,10 +217,16 @@ bun run pipelines/import/import-quran-translations.ts --edition=eng-mustafakhatt
 bun run pipelines/import/import-tafsirs.ts --all                                 # All tafsirs (27 editions)
 bun run pipelines/import/import-tafsirs.ts --lang=en                             # By language
 
-# Hadith
+# Hadith (sunnah.com — 17 collections)
 bun run pipelines/import/scrape-sunnah.ts --download-only --all                  # Download HTML from sunnah.com
 bun run pipelines/import/scrape-sunnah.ts --process-only --all                   # Import into database
 bun run pipelines/import/scrape-hadith-translations.ts --all                     # English translations
+
+# Hadith (hadithunlocked.com — 7 collections with isnad/matn, grading, tashkeel)
+bun run pipelines/import/import-hadithdb.ts --all --download-only                # Download TSV bulk exports
+bun run pipelines/import/import-hadithdb.ts --all                                # Import all 7 collections
+bun run pipelines/import/import-hadithdb.ts --collection=hakim                   # Single collection by alias
+bun run pipelines/import/import-hadithdb.ts --collection=hakim --dry-run         # Preview without writing
 
 # Books (Turath API → PostgreSQL + RustFS)
 bun run pipelines/import/import-turath.ts --id=26                                # Import book by ID

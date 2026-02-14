@@ -156,3 +156,37 @@ export const TranslationResponse = z.object({
   translations: z.array(TranslationEntry),
   _sources: z.array(SourceSchema),
 }).openapi("TranslationDetail");
+
+// --- Reciters / Audio ---
+
+export const ReciterSchema = z.object({
+  id: z.number(),
+  slug: z.string(),
+  nameArabic: z.string().nullable(),
+  nameEnglish: z.string(),
+  style: z.string().nullable(),
+  qiraat: z.string(),
+  bitrate: z.number(),
+  totalAyahs: z.number(),
+  language: z.string(),
+  source: z.string(),
+});
+
+export const ReciterListQuery = z.object({
+  qiraat: z.string().max(20).optional().openapi({ example: "hafs" }),
+  language: z.string().max(10).optional().openapi({ example: "ar" }),
+});
+
+export const ReciterListResponse = z.object({
+  reciters: z.array(ReciterSchema),
+  count: z.number(),
+}).openapi("ReciterList");
+
+export const AudioPathParam = z.object({
+  surah: z.coerce.number().int().min(1).max(114).openapi({ example: 1, description: "Surah number (1-114)" }),
+  ayah: z.coerce.number().int().min(1).max(286).openapi({ example: 1, description: "Ayah number" }),
+});
+
+export const AudioQuery = z.object({
+  reciter: z.string().optional().openapi({ example: "everyayah/alafasy-128kbps", description: "Reciter slug" }),
+});
