@@ -82,7 +82,7 @@ const getHadith = createRoute({
 
 // --- Helpers ---
 
-// Extra hadith fields to include in select queries (HadithDB + Dorar.net metadata)
+// Extra hadith fields to include in select queries (hadithunlocked.com + legacy metadata)
 const EXTRA_HADITH_FIELDS_SELECT = {
   source: true,
   isnad: true,
@@ -106,8 +106,8 @@ const SUNNAH_COM_SLUGS = new Set([
   "mishkat", "bulugh", "nawawi40", "qudsi40", "hisn",
 ]);
 
-// HadithDB collection slugs — imported from hadithunlocked.com
-const HADITHDB_SLUGS = new Set([
+// hadithunlocked.com collection slugs
+const HADITH_UNLOCKED_SLUGS = new Set([
   "mustadrak", "ibn-hibban", "mujam-kabir", "sunan-kubra-bayhaqi",
   "sunan-kubra-nasai", "suyuti", "ahmad-zuhd",
 ]);
@@ -118,7 +118,7 @@ function isFromSunnah(slug: string): boolean {
 
 function getSourcesForSlug(slug: string) {
   if (isFromSunnah(slug)) return [...SOURCES.sunnah];
-  if (HADITHDB_SLUGS.has(slug)) return [...SOURCES.hadithUnlocked];
+  if (HADITH_UNLOCKED_SLUGS.has(slug)) return [...SOURCES.hadithUnlocked];
   return [...SOURCES.sunnah, ...SOURCES.hadithUnlocked];
 }
 

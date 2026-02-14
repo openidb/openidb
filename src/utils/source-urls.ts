@@ -8,7 +8,6 @@
 export const SOURCES = {
   turath: [{ name: "Turath Library", url: "https://turath.io", type: "api" }],
   sunnah: [{ name: "sunnah.com", url: "https://sunnah.com", type: "scrape" }],
-  dorar: [{ name: "Dorar.net", url: "https://dorar.net", type: "api" }],
   hadithUnlocked: [{ name: "hadithunlocked.com", url: "https://hadithunlocked.com", type: "bulk" }],
   quranCloud: [{ name: "Al Quran Cloud API", url: "https://api.alquran.cloud", type: "api" }],
   tafsir: [

@@ -63,7 +63,7 @@ export const HadithSchema = z.object({
   chapterEnglish: z.string().nullable(),
   sunnahComUrl: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
-  // Isnad/matn separation (HadithDB)
+  // Isnad/matn separation (hadithunlocked.com)
   isnad: z.string().nullable().optional(),
   matn: z.string().nullable().optional(),
   gradeText: z.string().nullable().optional(),
@@ -108,7 +108,7 @@ export const HadithDetailResponse = z.object({
     chapterEnglish: z.string().nullable(),
     sunnahComUrl: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
-    // Isnad/matn separation (HadithDB)
+    // Isnad/matn separation (hadithunlocked.com)
     isnad: z.string().nullable().optional(),
     matn: z.string().nullable().optional(),
     gradeText: z.string().nullable().optional(),

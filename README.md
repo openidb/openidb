@@ -223,10 +223,10 @@ bun run pipelines/import/scrape-sunnah.ts --process-only --all                  
 bun run pipelines/import/scrape-hadith-translations.ts --all                     # English translations
 
 # Hadith (hadithunlocked.com — 7 collections with isnad/matn, grading, tashkeel)
-bun run pipelines/import/import-hadithdb.ts --all --download-only                # Download TSV bulk exports
-bun run pipelines/import/import-hadithdb.ts --all                                # Import all 7 collections
-bun run pipelines/import/import-hadithdb.ts --collection=hakim                   # Single collection by alias
-bun run pipelines/import/import-hadithdb.ts --collection=hakim --dry-run         # Preview without writing
+bun run pipelines/import/import-hadith-unlocked.ts --all --download-only                # Download TSV bulk exports
+bun run pipelines/import/import-hadith-unlocked.ts --all                                # Import all 7 collections
+bun run pipelines/import/import-hadith-unlocked.ts --collection=hakim                   # Single collection by alias
+bun run pipelines/import/import-hadith-unlocked.ts --collection=hakim --dry-run         # Preview without writing
 
 # Books (Turath API → PostgreSQL + RustFS)
 bun run pipelines/import/import-turath.ts --id=26                                # Import book by ID

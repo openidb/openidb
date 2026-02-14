@@ -415,9 +415,9 @@ model Hadith {
   chapterArabic    String? @map("chapter_arabic")
   chapterEnglish   String? @map("chapter_english")
   isChainVariation Boolean @default(false) @map("is_chain_variation") // True for hadiths that are only chain variations (no matn)
-  source           String?                                             // Data provenance: "sunnah.com", "hadithdb", etc.
+  source           String?                                             // Data provenance: "sunnah.com", "hadithunlocked.com"
 
-  // Isnad/Matn separation (from HadithDB)
+  // Isnad/Matn separation (from hadithunlocked.com)
   isnad     String? @db.Text // Chain of narrators (Arabic, with tashkeel)
   matn      String? @db.Text // Hadith body text (Arabic, with tashkeel)
   gradeText String? @map("grade_text") // Full grade description (English, e.g. "Sound - agreed upon")
