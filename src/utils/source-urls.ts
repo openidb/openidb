@@ -8,12 +8,21 @@
 export const SOURCES = {
   turath: [{ name: "Turath Library", url: "https://turath.io", type: "api" }],
   sunnah: [{ name: "sunnah.com", url: "https://sunnah.com", type: "scrape" }],
+  dorar: [{ name: "Dorar.net", url: "https://dorar.net", type: "api" }],
+  hadithUnlocked: [{ name: "hadithunlocked.com", url: "https://hadithunlocked.com", type: "bulk" }],
   quranCloud: [{ name: "Al Quran Cloud API", url: "https://api.alquran.cloud", type: "api" }],
   tafsir: [
     { name: "spa5k/tafsir_api", url: "https://github.com/spa5k/tafsir_api", type: "api" },
     { name: "quran-tafseer.com", url: "http://api.quran-tafseer.com", type: "api" },
   ],
   quranTranslation: [{ name: "fawazahmed0/quran-api", url: "https://github.com/fawazahmed0/quran-api", type: "api" }],
+  quranAudio: [
+    { name: "EveryAyah", url: "https://everyayah.com", type: "cdn" },
+    { name: "Al Quran Cloud CDN", url: "https://cdn.islamic.network", type: "cdn" },
+    { name: "Quran Foundation", url: "https://quran.com", type: "api" },
+    { name: "MP3Quran.net", url: "https://mp3quran.net", type: "api" },
+    { name: "Tarteel AI / QUL", url: "https://qul.tarteel.ai", type: "cdn" },
+  ],
 } as const;
 
 // Collections that use /collection/book/hadith format instead of /collection:hadith

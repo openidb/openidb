@@ -21,23 +21,30 @@ export async function expandQueryWithCacheInfo(query: string, model: string = "g
 
 User Query: "${query.replace(/"/g, "'").replace(/[\r\n]+/g, " ").slice(0, 500)}"
 
-Your task: Generate 4 alternative search queries that will help find what the user is actually looking for.
+Generate exactly 4 alternative search queries:
 
-EXPANSION STRATEGIES (use the most relevant):
+QUERY 1-2: PREDICTED ANSWER TEXT
+- Write a snippet of the ACTUAL Arabic text you expect to find in the answer
+- Quote the beginning of the ayah, hadith, or passage that answers this query
+- Examples:
+  - "ayat al-kursi" → "الله لا إله إلا هو الحي القيوم لا تأخذه سنة ولا نوم"
+  - "5 before 5" → "اغتنم خمسا قبل خمس شبابك قبل هرمك وصحتك قبل سقمك"
+  - "the verse about patience" → "إنما يوفى الصابرون أجرهم بغير حساب"
 
-1. **ANSWER-ORIENTED** (if query is a question)
-2. **TOPIC VARIANTS** - Arabic equivalents, root variations, related terminology
-3. **CONTEXTUAL EXPANSION** - What sources would discuss this topic?
-4. **SEMANTIC BRIDGES** - English query to Arabic content terms
+QUERY 3-4: ARABIC TRANSLATION & EXPANSION
+- Translate or expand the query into Arabic (or English if already Arabic)
+- Use Arabic root variations, synonyms, and related Islamic terminology
+- Examples:
+  - "prayer times" → "مواقيت الصلاة" or "أوقات الصلوات الخمس"
+  - "الزكاة" → "zakat obligation" or "أحكام الزكاة والصدقة"
 
-Return ONLY a JSON array of query strings:
-["expanded query 1", "expanded query 2", "expanded query 3", "expanded query 4"]
+Return ONLY a JSON array of 4 query strings:
+["predicted answer 1", "predicted answer 2", "arabic expansion 1", "arabic expansion 2"]
 
 IMPORTANT:
-- Prioritize queries that would find ANSWERS, not just mentions
-- Include at least one Arabic query if the original is English (and vice versa)
-- Keep queries 2-5 words, focused and searchable
-- Don't include the original query in your response`;
+- For predicted answers, write the actual Arabic source text (ayah/hadith/passage), not a description
+- Keep expansion queries 2-8 words, focused and searchable
+- Don't repeat the original query`;
 
     const modelId = getQueryExpansionModelId(model);
     const result = await callOpenRouter({
@@ -68,7 +75,7 @@ IMPORTANT:
       if (expQuery && expQuery.trim() && expQuery !== query) {
         results.push({
           query: expQuery.trim().slice(0, MAX_QUERY_LENGTH),
-          weight: 0.7,
+          weight: 1.0,
           reason: `Expanded query ${i + 1}`,
         });
       }

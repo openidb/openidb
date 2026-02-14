@@ -61,7 +61,22 @@ export const HadithSchema = z.object({
   contentHash: z.string().nullable(),
   chapterArabic: z.string().nullable(),
   chapterEnglish: z.string().nullable(),
-  sunnahComUrl: z.string(),
+  sunnahComUrl: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
+  // Isnad/matn separation (HadithDB)
+  isnad: z.string().nullable().optional(),
+  matn: z.string().nullable().optional(),
+  gradeText: z.string().nullable().optional(),
+  // Grading & metadata
+  grade: z.string().nullable().optional(),
+  gradeExplanation: z.string().nullable().optional(),
+  graderName: z.string().nullable().optional(),
+  narratorName: z.string().nullable().optional(),
+  sourceBookName: z.string().nullable().optional(),
+  numberOrPage: z.string().nullable().optional(),
+  takhrij: z.string().nullable().optional(),
+  categories: z.array(z.object({ id: z.number(), name: z.string() })).nullable().optional(),
+  sharhText: z.string().nullable().optional(),
 });
 
 export const HadithBookResponse = z.object({
@@ -91,7 +106,22 @@ export const HadithDetailResponse = z.object({
     contentHash: z.string().nullable(),
     chapterArabic: z.string().nullable(),
     chapterEnglish: z.string().nullable(),
-    sunnahComUrl: z.string(),
+    sunnahComUrl: z.string().nullable().optional(),
+    source: z.string().nullable().optional(),
+    // Isnad/matn separation (HadithDB)
+    isnad: z.string().nullable().optional(),
+    matn: z.string().nullable().optional(),
+    gradeText: z.string().nullable().optional(),
+    // Grading & metadata
+    grade: z.string().nullable().optional(),
+    gradeExplanation: z.string().nullable().optional(),
+    graderName: z.string().nullable().optional(),
+    narratorName: z.string().nullable().optional(),
+    sourceBookName: z.string().nullable().optional(),
+    numberOrPage: z.string().nullable().optional(),
+    takhrij: z.string().nullable().optional(),
+    categories: z.array(z.object({ id: z.number(), name: z.string() })).nullable().optional(),
+    sharhText: z.string().nullable().optional(),
     book: z.object({
       bookNumber: z.number(),
       nameEnglish: z.string().nullable(),

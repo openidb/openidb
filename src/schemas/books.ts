@@ -20,6 +20,7 @@ export const BookListQuery = PaginationQuery.extend({
   authorId: z.string().max(50).optional(),
   categoryId: z.string().optional().openapi({ example: "5", description: "Category ID(s), comma-separated" }),
   century: z.string().optional().openapi({ example: "3,7", description: "Hijri century(ies), comma-separated" }),
+  bookTitleLang: z.string().max(20).optional().openapi({ example: "en", description: "Language code for book title translation" }),
 });
 
 export const BookPagesQuery = PaginationQuery.merge(z.object({
@@ -39,6 +40,7 @@ export const BookSummary = z.object({
   id: z.string(),
   titleArabic: z.string(),
   titleLatin: z.string().nullable(),
+  titleTranslated: z.string().nullable().optional(),
   filename: z.string(),
   totalVolumes: z.number(),
   totalPages: z.number().nullable(),

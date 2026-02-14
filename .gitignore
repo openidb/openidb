@@ -9,8 +9,12 @@ data/books/*.epub
 pipelines/import/turath-catalog.json
 pipelines/import/batch-progress.json
 pipelines/import/author-batches/
+pipelines/import/book-title-batches/
 pipelines/import/dictionary/extraction-batches/
 *.sqlite
 pipelines/import/KhorsiCorpus.sql*
 pipelines/knowledge-graph/data/
 pipelines/knowledge-graph/data-backup/
+pipelines/import/dorar-cache/
+pipelines/import/hadithdb-cache/
+tools/
