@@ -1,15 +1,15 @@
 /**
- * HadithDB Importer — Import structured hadith data from hadithunlocked.com
+ * hadithunlocked.com Importer — Import structured hadith data from hadithunlocked.com
  *
  * Downloads TSV bulk exports with complete Arabic text (with tashkeel),
  * isnad/matn separation, English translations, and grading.
  *
  * Usage:
- *   bun run pipelines/import/import-hadithdb.ts --collection=hakim       # Single collection
- *   bun run pipelines/import/import-hadithdb.ts --all                    # All 7 target collections
- *   bun run pipelines/import/import-hadithdb.ts --collection=hakim --download-only  # Just cache TSV
- *   bun run pipelines/import/import-hadithdb.ts --collection=hakim --import-only    # Import from cache
- *   bun run pipelines/import/import-hadithdb.ts --collection=hakim --dry-run        # Preview
+ *   bun run pipelines/import/import-hadith-unlocked.ts --collection=hakim       # Single collection
+ *   bun run pipelines/import/import-hadith-unlocked.ts --all                    # All 7 target collections
+ *   bun run pipelines/import/import-hadith-unlocked.ts --collection=hakim --download-only  # Just cache TSV
+ *   bun run pipelines/import/import-hadith-unlocked.ts --collection=hakim --import-only    # Import from cache
+ *   bun run pipelines/import/import-hadith-unlocked.ts --collection=hakim --dry-run        # Preview
  */
 
 import "../env";
@@ -23,10 +23,10 @@ import * as path from "path";
 // Configuration
 // ============================================================================
 
-const CACHE_DIR = path.join(import.meta.dir, "hadithdb-cache");
+const CACHE_DIR = path.join(import.meta.dir, "hadith-unlocked-cache");
 const BASE_URL = "https://hadithunlocked.com";
 
-// HadithDB alias → our slug mapping
+// hadithunlocked.com alias → our slug mapping
 const ALIAS_TO_SLUG: Record<string, string> = {
   "hakim": "mustadrak",
   "ibnhibban": "ibn-hibban",
@@ -53,9 +53,6 @@ const TARGET_COLLECTIONS: CollectionDef[] = [
   { alias: "suyuti", slug: "suyuti", nameEnglish: "Jam' al-Jawami'", nameArabic: "جمع الجوامع" },
   { alias: "ahmad-zuhd", slug: "ahmad-zuhd", nameEnglish: "Al-Zuhd (Ahmad)", nameArabic: "الزهد لأحمد" },
 ];
-
-// Dorar-imported collection slugs that will be replaced
-const DORAR_REPLACEMENT_SLUGS = new Set(["mustadrak", "ibn-hibban", "sunan-kubra-bayhaqi"]);
 
 // ============================================================================
 // TSV Parsing
@@ -149,43 +146,6 @@ async function importCollection(
 
   if (dryRun) {
     console.log(`  [DRY RUN] Would import ${rows.length} rows for ${slug}`);
-  }
-
-  // 1. Delete existing Dorar data for replaced collections
-  if (DORAR_REPLACEMENT_SLUGS.has(slug)) {
-    const existing = await prisma.hadithCollection.findUnique({ where: { slug } });
-    if (existing) {
-      // Count existing for logging
-      const existingCount = await prisma.hadith.count({
-        where: { book: { collectionId: existing.id } },
-      });
-      if (existingCount > 0) {
-        if (dryRun) {
-          console.log(`  [DRY RUN] Would delete ${existingCount} existing Dorar hadiths for ${slug}`);
-        } else {
-          console.log(`  Deleting ${existingCount} existing hadiths for ${slug} (replacing Dorar data)...`);
-          // Get book IDs for this collection
-          const bookIds = await prisma.hadithBook.findMany({
-            where: { collectionId: existing.id },
-            select: { id: true },
-          });
-          const bookIdList = bookIds.map((b) => b.id);
-          // Delete translations first (no FK relation, just bookId)
-          await prisma.hadithTranslation.deleteMany({
-            where: { bookId: { in: bookIdList } },
-          });
-          // Delete hadiths
-          await prisma.hadith.deleteMany({
-            where: { bookId: { in: bookIdList } },
-          });
-          // Delete books
-          await prisma.hadithBook.deleteMany({
-            where: { collectionId: existing.id },
-          });
-          console.log(`  Deleted existing data for ${slug}`);
-        }
-      }
-    }
   }
 
   if (dryRun) {
@@ -450,7 +410,7 @@ async function main() {
     }
   }
 
-  console.log(`\n=== HadithDB Import ===`);
+  console.log(`\n=== hadithunlocked.com Import ===`);
   console.log(`Collections: ${targets.map((c) => c.alias).join(", ")}`);
   console.log(`Mode: ${flags.dryRun ? "DRY RUN" : flags.downloadOnly ? "DOWNLOAD ONLY" : flags.importOnly ? "IMPORT ONLY" : "FULL"}\n`);
 

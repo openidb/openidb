@@ -15,6 +15,5 @@ pipelines/import/dictionary/extraction-batches/
 pipelines/import/KhorsiCorpus.sql*
 pipelines/knowledge-graph/data/
 pipelines/knowledge-graph/data-backup/
-pipelines/import/dorar-cache/
-pipelines/import/hadithdb-cache/
+pipelines/import/hadith-unlocked-cache/
 tools/
