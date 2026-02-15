@@ -6,7 +6,7 @@ Built with Hono, PostgreSQL, Qdrant, Elasticsearch, and Neo4j.
 
 ## Data
 
-- **Quran** — 114 surahs, 6,236 ayahs (Uthmani script), 500+ translation editions across 90+ languages, 27 tafsirs in 6 languages
+- **Quran** — 114 surahs, 6,236 ayahs (Uthmani script), 500+ translation editions across 90+ languages, 27 tafsirs in 6 languages, 100+ audio reciters from 4 sources
 - **Hadith** — 24 collections (166,964 hadiths) from two sources:
   - **[sunnah.com](https://sunnah.com/)** — 17 collections (49,618 hadiths): Bukhari, Muslim, Abu Dawud, Tirmidhi, Nasa'i, Ibn Majah, Ahmad, Malik, Darimi, Riyad as-Salihin, Al-Adab Al-Mufrad, Ash-Shama'il, Mishkat al-Masabih, Bulugh al-Maram, Nawawi's 40, 40 Qudsi, Hisn al-Muslim
   - **[hadithunlocked.com](https://hadithunlocked.com/)** — 7 collections (117,346 hadiths) with full tashkeel, isnad/matn separation, grading, and English translations: Mustadrak al-Hakim, Sahih Ibn Hibban, Al-Mu'jam al-Kabir, Sunan al-Kubra (Bayhaqi), Sunan al-Kubra (Nasa'i), Jam' al-Jawami' (Suyuti), Al-Zuhd (Ahmad)
@@ -27,6 +27,8 @@ Base URL: `http://localhost:4000`
 | `GET /api/quran/tafsir/:surah/:ayah` | Tafsir for an ayah |
 | `GET /api/quran/translations` | List available translation editions |
 | `GET /api/quran/translations/:surah/:ayah` | Translations for an ayah |
+| `GET /api/quran/reciters` | List available audio reciters |
+| `GET /api/quran/audio/:surah/:ayah` | Stream per-ayah audio (MP3) |
 | `GET /api/hadith/collections` | List hadith collections |
 | `GET /api/hadith/collections/:slug` | Collection with books |
 | `GET /api/hadith/collections/:slug/books/:bookNumber` | Hadiths in a book |
@@ -97,6 +99,7 @@ Static data endpoints include `Cache-Control` headers:
 |-----------------|---------------|
 | `/api/quran/surahs`, `/api/hadith/collections`, `/api/stats` | 1 hour (`max-age=3600`) |
 | `/api/quran/surahs/:number`, `/api/hadith/collections/:slug` | 24 hours (`max-age=86400`) |
+| `/api/quran/audio/:surah/:ayah` | 24 hours (`max-age=86400, immutable`) |
 | `/api/search` | No cache |
 
 ## Setup
@@ -182,7 +185,7 @@ src/
 │   │   ├── rerankers.ts        # LLM reranking
 │   │   ├── response.ts         # Graph context + metadata
 │   │   └── config.ts           # Thresholds and constants
-│   ├── quran.ts
+│   ├── quran.ts                 # Surahs, ayahs, translations, tafsirs, reciters, audio
 │   ├── hadith.ts
 │   ├── books.ts
 │   ├── authors.ts
@@ -195,6 +198,7 @@ src/
 │   ├── arabic-text.ts             # Root extraction, normalization, vocalized matching
 │   ├── pagination.ts
 │   ├── source-urls.ts
+│   ├── audio-storage.ts           # Quran audio file paths + streaming
 │   └── timing.ts
 └── schemas/
     ├── dictionary.ts              # Dictionary API schemas
@@ -216,6 +220,11 @@ bun run pipelines/import/import-quran-translations.ts --lang=en,fr              
 bun run pipelines/import/import-quran-translations.ts --edition=eng-mustafakhattaba  # Single edition
 bun run pipelines/import/import-tafsirs.ts --all                                 # All tafsirs (27 editions)
 bun run pipelines/import/import-tafsirs.ts --lang=en                             # By language
+
+# Quran Audio (100+ reciters from EveryAyah, Al Quran Cloud, Quran Foundation, Tarteel)
+bun run pipelines/import/import-quran-audio.ts --source=everyayah                # Download from a source
+bun run pipelines/import/import-quran-audio.ts --source=everyayah --reciter=alafasy-128kbps  # Single reciter
+bun run pipelines/import/import-qul-audio.ts                                     # Tarteel AI / QUL reciters
 
 # Hadith (sunnah.com — 17 collections)
 bun run pipelines/import/scrape-sunnah.ts --download-only --all                  # Download HTML from sunnah.com
@@ -259,6 +268,31 @@ bun run pipelines/embed/generate-embeddings.ts               # Generate vector e
 bun run pipelines/index/sync-elasticsearch.ts                 # Sync data to Elasticsearch
 bun run pipelines/knowledge-graph/seed-neo4j.ts               # Seed Neo4j knowledge graph
 ```
+
+## Attribution
+
+### Quran
+
+| What | Source | Details |
+|------|--------|---------|
+| **Text** | [Al Quran Cloud API](https://alquran.cloud/) | Uthmani script (Hafs an Asim), 6,236 ayahs |
+| **Translations** | [fawazahmed0/quran-api](https://github.com/fawazahmed0/quran-api) | 500+ editions, 90+ languages, via jsDelivr CDN |
+| **Tafsirs** | [spa5k/tafsir_api](https://github.com/spa5k/tafsir_api) | 27 editions, 6 languages — includes Ibn Kathir, al-Jalalayn, al-Tabari, al-Muyassar |
+| **Audio** | [EveryAyah.com](https://everyayah.com/) | Per-ayah MP3 recitations, ~70 reciters, multiple bitrates and styles |
+| | [Al Quran Cloud CDN](https://cdn.islamic.network/) | 27 audio editions |
+| | [Quran Foundation](https://quran.com/) | 9 high-quality reciters (192 kbps) |
+| | [QUL / Tarteel AI](https://qul.tarteel.ai/) | Additional reciter audio |
+
+### Hadith
+
+- **[sunnah.com](https://sunnah.com/)** — 17 collections (49,618 hadiths) with Arabic text and English translations
+- **[hadithunlocked.com](https://hadithunlocked.com/)** — 7 collections (117,346 hadiths) with full tashkeel, isnad/matn separation, scholarly grading, and human-only English translations
+
+### Books & Dictionaries
+
+- **[Turath.io](https://turath.io/)** — 8,500+ classical Arabic texts and 43 Arabic dictionaries (same corpus as [Shamela.ws](https://shamela.ws/))
+- **[Arramooz](https://github.com/linuxscout/arramooz)** — Arabic morphological database for root derivation
+- **KhorsiCorpus** — Taj al-Arus word-root derivatives for morphological pattern generation
 
 ## Part of [OpenIDB](https://github.com/openidb)
 
