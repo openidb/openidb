@@ -2,13 +2,6 @@ import { prisma } from "../../db";
 import { extractParagraphTexts, findMatchingParagraphIndex } from "./helpers";
 import type { AyahResult, HadithResult, RankedResult } from "./types";
 
-// Hadith slugs sourced from hadithunlocked.com (mirrors SLUG_TO_HADITHUNLOCKED_ALIAS in source-urls.ts)
-const HADITH_UNLOCKED_SLUGS = new Set([
-  "mustadrak", "ibn-hibban", "mujam-kabir",
-  "sunan-kubra-bayhaqi", "sunan-kubra-nasai",
-  "suyuti", "ahmad-zuhd",
-]);
-
 export async function fetchAndMergeTranslations(
   params: {
     quranTranslation: string;
@@ -47,7 +40,7 @@ export async function fetchAndMergeTranslations(
             language: hadithTranslation,
             OR: hadiths.map((h) => ({ bookId: h.bookId, hadithNumber: h.hadithNumber })),
           },
-          select: { bookId: true, hadithNumber: true, text: true },
+          select: { bookId: true, hadithNumber: true, text: true, source: true },
         })
       : Promise.resolve([]),
     (bookContentTranslation !== "none" && rankedResults.length > 0)
@@ -103,17 +96,29 @@ export async function fetchAndMergeTranslations(
 
   // Merge hadith translations with source attribution
   let mergedHadiths = hadiths;
-  if (hadithTranslationsRaw.length > 0) {
+  const wantsTranslation = hadithTranslation !== "none";
+  if (hadithTranslationsRaw.length > 0 || wantsTranslation) {
     const hadithTranslationMap = new Map(
-      hadithTranslationsRaw.map((t) => [`${t.bookId}-${t.hadithNumber}`, t.text])
+      hadithTranslationsRaw.map((t) => [
+        `${t.bookId}-${t.hadithNumber}`,
+        { text: t.text, source: t.source },
+      ])
     );
-    mergedHadiths = hadiths.map((hadith) => ({
-      ...hadith,
-      translation: hadithTranslationMap.get(`${hadith.bookId}-${hadith.hadithNumber}`),
-      translationSource: HADITH_UNLOCKED_SLUGS.has(hadith.collectionSlug)
-        ? "hadithunlocked.com"
-        : "sunnah.com",
-    }));
+    mergedHadiths = hadiths.map((hadith) => {
+      const match = hadithTranslationMap.get(`${hadith.bookId}-${hadith.hadithNumber}`);
+      if (!match) {
+        return {
+          ...hadith,
+          translationPending: wantsTranslation,
+        };
+      }
+      return {
+        ...hadith,
+        translation: match.text,
+        translationSource: match.source || undefined,
+        translationPending: false,
+      };
+    });
   }
 
   // Merge book content translations with model info

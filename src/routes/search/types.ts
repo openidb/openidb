@@ -74,6 +74,7 @@ export interface HadithResult {
   sourceUrl: string;
   translation?: string;
   translationSource?: string;
+  translationPending?: boolean;
 }
 
 export interface AuthorResult {

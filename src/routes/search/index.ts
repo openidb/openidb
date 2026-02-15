@@ -12,6 +12,7 @@ import { ErrorResponse } from "../../schemas/common";
 import { SearchQuery, SearchResponse } from "../../schemas/search";
 import { logSearchEvent } from "../../analytics/log-search";
 import { clickRoutes } from "./click";
+import { hadithTranslateRoutes } from "./hadith-translate";
 import { SOURCES } from "../../utils/source-urls";
 
 const search = createRoute({
@@ -40,6 +41,9 @@ export const searchRoutes = new OpenAPIHono();
 
 // Mount click tracking sub-route: POST /api/search/click
 searchRoutes.route("/", clickRoutes);
+
+// Mount hadith translation sub-route: POST /api/search/translate-hadiths
+searchRoutes.route("/", hadithTranslateRoutes);
 
 searchRoutes.openapi(search, async (c) => {
   const validated = c.req.valid("query");

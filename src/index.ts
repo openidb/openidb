@@ -79,6 +79,9 @@ app.use("/api/transcribe/*", expensiveRateLimit);
 app.use("/api/transcribe", expensiveRateLimit);
 app.use("/api/books/:id/pages/:page/translate", internalAuth);
 app.use("/api/books/:id/pages/:page/translate", expensiveRateLimit);
+app.use("/api/search/translate-hadiths", internalAuth);
+app.use("/api/search/translate-hadiths", expensiveRateLimit);
+app.use("/api/search/translate-hadiths", timeout(60_000));
 
 app.route("/api/search", searchRoutes);
 app.route("/api/quran", quranRoutes);

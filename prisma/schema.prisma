@@ -472,6 +472,8 @@ model HadithTranslation {
   language     String // "en" for now, expandable later
   text         String  @db.Text
   contentHash  String? @map("content_hash")
+  source       String? // "sunnah.com", "hadithunlocked.com", "llm"
+  model        String? // "gemini-flash" etc, only for source="llm"
 
   @@unique([bookId, hadithNumber, language])
   @@index([bookId, hadithNumber])
