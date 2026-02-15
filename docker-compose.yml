@@ -114,7 +114,7 @@ services:
 
   # ---------- Application ----------
 
-  openidb:
+  api:
     container_name: openidb-api
     build: .
     restart: unless-stopped
@@ -150,18 +150,18 @@ services:
       timeout: 5s
       retries: 5
 
-  sabeel:
-    container_name: sabeel-web
+  frontend:
+    container_name: openidb-frontend
     build:
-      context: ../sabeel/web
+      context: ../frontend/web
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      OPENIDB_URL: http://openidb:4000
-      SITE_URL: ${SITE_URL:-https://sabeel.dev}
+      OPENIDB_URL: http://api:4000
+      SITE_URL: ${SITE_URL:-https://openidb.org}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?Set INTERNAL_API_SECRET in .env}
       CSRF_SECRET: ${CSRF_SECRET:?Set CSRF_SECRET in .env}
     deploy:
@@ -169,7 +169,7 @@ services:
         limits:
           memory: 512m
     depends_on:
-      openidb:
+      api:
         condition: service_healthy
 
 volumes:

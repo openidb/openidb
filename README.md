@@ -1,4 +1,4 @@
-# openidb
+# api
 
 REST API for Islamic texts — Quran, Hadith, classical Arabic books, and Arabic dictionaries — with hybrid search combining semantic similarity, keyword matching, knowledge graphs, and LLM reranking.
 
@@ -130,7 +130,7 @@ ELASTICSEARCH_URL=http://localhost:9200
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 ALLOWED_ORIGINS=http://localhost:3000
-INTERNAL_API_SECRET=   # Shared secret for sabeel → openidb internal calls
+INTERNAL_API_SECRET=   # Shared secret for frontend → api internal calls
 ```
 
 Optional:
@@ -263,5 +263,5 @@ bun run pipelines/knowledge-graph/seed-neo4j.ts               # Seed Neo4j knowl
 ## Part of [OpenIDB](https://github.com/openidb)
 
 This is the API server. See also:
-- [sabeel](https://github.com/openidb/sabeel) — Frontend (Next.js)
+- [frontend](https://github.com/openidb/frontend) — Frontend (Next.js)
 - [scrapers](https://github.com/openidb/scrapers) — Data acquisition
