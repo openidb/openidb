@@ -4,6 +4,7 @@
  * Fetches and normalizes available editions from upstream sources:
  * - fawazahmed0/quran-api — Quran translations (500+ editions)
  * - spa5k/tafsir_api — Quran tafsirs (27 editions)
+ * - QUL (Tarteel AI) — Quran translations (193) + tafsirs (114)
  *
  * Provides metadata sync to populate QuranTranslation and QuranTafsir tables.
  */
@@ -20,18 +21,30 @@ const TRANSLATION_CDN_BASE =
 const TAFSIR_CDN_BASE =
   "https://cdn.jsdelivr.net/gh/spa5k/tafsir_api@main/tafsir";
 
-// Map full language names from fawazahmed0 editions.json to ISO 639-1 codes
+// QUL (Tarteel AI) API
+const QUL_API_BASE = "https://qul.tarteel.ai/api/v1";
+const QUL_TRANSLATIONS_URL = `${QUL_API_BASE}/resources/translations`;
+const QUL_TAFSIRS_URL = `${QUL_API_BASE}/resources/tafsirs`;
+
+// Map full language names from fawazahmed0 / QUL editions to ISO 639-1 codes
 const LANGUAGE_TO_ISO: Record<string, string> = {
   afar: "aa", albanian: "sq", amharic: "am", amazigh: "zgh", arabic: "ar",
   azerbaijani: "az", bengali: "bn", berber: "ber", bosnian: "bs",
-  bulgarian: "bg", chinese: "zh", czech: "cs", divehi: "dv", dutch: "nl",
-  english: "en", french: "fr", german: "de", hausa: "ha", hindi: "hi",
-  indonesian: "id", italian: "it", japanese: "ja", korean: "ko",
-  kurdish: "ku", malay: "ms", malayalam: "ml", norwegian: "no",
+  bulgarian: "bg", burmese: "my", chechen: "ce", chinese: "zh", czech: "cs",
+  dari: "prs", divehi: "dv", dutch: "nl",
+  english: "en", filipino: "fil", french: "fr", georgian: "ka", german: "de",
+  gujarati: "gu", hausa: "ha", hebrew: "he", hindi: "hi",
+  hungarian: "hu", igbo: "ig", indonesian: "id", italian: "it",
+  japanese: "ja", javanese: "jv", kannada: "kn", kazakh: "kk",
+  khmer: "km", korean: "ko", kurdish: "ku",
+  kyrgyz: "ky", malay: "ms", malayalam: "ml", marathi: "mr",
+  nepali: "ne", norwegian: "no", oromo: "om",
   pashto: "ps", persian: "fa", polish: "pl", portuguese: "pt",
-  romanian: "ro", russian: "ru", sindhi: "sd", somali: "so", spanish: "es",
+  romanian: "ro", russian: "ru", serbian: "sr", sindhi: "sd",
+  sinhala: "si", sinhalese: "si", somali: "so", spanish: "es",
   swahili: "sw", swedish: "sv", tajik: "tg", tamil: "ta", tatar: "tt",
-  thai: "th", turkish: "tr", uighur: "ug", ukrainian: "uk", urdu: "ur",
+  telugu: "te", thai: "th", turkish: "tr",
+  uighur: "ug", uyghur: "ug", ukrainian: "uk", urdu: "ur",
   uzbek: "uz", vietnamese: "vi", yoruba: "yo",
 };
 
@@ -201,5 +214,151 @@ export async function syncTafsirMetadata(
   return synced;
 }
 
+// ============================================================================
+// QUL (Tarteel AI) Editions
+// ============================================================================
+
+interface QulResourceEdition {
+  id: number;
+  name: string;
+  author_name: string;
+  language: string;         // e.g. "english", "uighur, uyghur", "sinhala, sinhalese"
+  language_name?: string;   // Some endpoints use this instead
+  slug: string | null;
+  translated_name?: { name: string; locale: string } | null;
+}
+
+/**
+ * Normalize QUL language name (may contain comma-separated aliases)
+ * e.g. "uighur, uyghur" -> "ug", "sinhala, sinhalese" -> "si"
+ */
+function normalizeQulLanguage(langName: string | null | undefined): string {
+  if (!langName) return "unknown";
+  // Try each comma-separated name
+  for (const part of langName.split(",")) {
+    const trimmed = part.trim().toLowerCase();
+    const iso = LANGUAGE_TO_ISO[trimmed];
+    if (iso) return iso;
+  }
+  // Fallback: first two chars of first name
+  return langName.trim().slice(0, 2).toLowerCase();
+}
+
+export interface QulTranslationEdition {
+  id: string;          // "qul-{resource_id}"
+  resourceId: number;  // Original QUL numeric ID
+  language: string;    // ISO code
+  name: string;
+  author: string | null;
+  direction: "ltr" | "rtl";
+}
+
+export interface QulTafsirEdition {
+  id: string;          // "qul-{resource_id}"
+  resourceId: number;
+  language: string;
+  name: string;
+  author: string | null;
+  direction: "ltr" | "rtl";
+}
+
+export async function fetchQulTranslationEditions(): Promise<QulTranslationEdition[]> {
+  const response = await fetch(QUL_TRANSLATIONS_URL);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch QUL translation editions: ${response.status}`);
+  }
+
+  const data: { translations: QulResourceEdition[] } = await response.json();
+  return data.translations.map((t) => {
+    const isoLang = normalizeQulLanguage(t.language || t.language_name);
+    return {
+      id: `qul-${t.id}`,
+      resourceId: t.id,
+      language: isoLang,
+      name: t.name,
+      author: t.author_name || null,
+      direction: RTL_LANGUAGES.has(isoLang) ? "rtl" : "ltr",
+    };
+  });
+}
+
+export async function fetchQulTafsirEditions(): Promise<QulTafsirEdition[]> {
+  const response = await fetch(QUL_TAFSIRS_URL);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch QUL tafsir editions: ${response.status}`);
+  }
+
+  const data: { tafsirs: QulResourceEdition[] } = await response.json();
+  return data.tafsirs.map((t) => {
+    const isoLang = normalizeQulLanguage(t.language || t.language_name);
+    return {
+      id: `qul-${t.id}`,
+      resourceId: t.id,
+      language: isoLang,
+      name: t.name,
+      author: t.author_name || null,
+      direction: RTL_LANGUAGES.has(isoLang) ? "rtl" : "ltr",
+    };
+  });
+}
+
+export async function syncQulTranslationMetadata(
+  editions: QulTranslationEdition[]
+): Promise<number> {
+  let synced = 0;
+  const BATCH = 50;
+  for (let i = 0; i < editions.length; i += BATCH) {
+    const batch = editions.slice(i, i + BATCH);
+    for (const ed of batch) {
+      await prisma.quranTranslation.upsert({
+        where: { id: ed.id },
+        update: {
+          language: ed.language,
+          name: ed.name,
+          author: ed.author,
+          direction: ed.direction,
+        },
+        create: {
+          id: ed.id,
+          language: ed.language,
+          name: ed.name,
+          author: ed.author,
+          source: "qul",
+          direction: ed.direction,
+        },
+      });
+      synced++;
+    }
+  }
+  return synced;
+}
+
+export async function syncQulTafsirMetadata(
+  editions: QulTafsirEdition[]
+): Promise<number> {
+  let synced = 0;
+  for (const ed of editions) {
+    await prisma.quranTafsir.upsert({
+      where: { id: ed.id },
+      update: {
+        language: ed.language,
+        name: ed.name,
+        author: ed.author,
+        direction: ed.direction,
+      },
+      create: {
+        id: ed.id,
+        language: ed.language,
+        name: ed.name,
+        author: ed.author,
+        source: "qul",
+        direction: ed.direction,
+      },
+    });
+    synced++;
+  }
+  return synced;
+}
+
 // Re-export CDN base for use in import scripts
-export { TRANSLATION_CDN_BASE, TAFSIR_CDN_BASE };
+export { TRANSLATION_CDN_BASE, TAFSIR_CDN_BASE, QUL_API_BASE };

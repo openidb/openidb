@@ -31,3 +31,5 @@ if (process.env.NODE_ENV !== "production") {
 export const ES_PAGES_INDEX = "arabic_pages";
 export const ES_HADITHS_INDEX = "arabic_hadiths";
 export const ES_AYAHS_INDEX = "arabic_ayahs";
+export const ES_BOOKS_INDEX = "books_catalog";
+export const ES_AUTHORS_INDEX = "authors_catalog";

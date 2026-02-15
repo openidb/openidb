@@ -7,6 +7,10 @@ export const BookIdParam = z.object({
   id: z.string().max(50).openapi({ example: "123", description: "Book ID" }),
 });
 
+export const BookDetailQuery = z.object({
+  bookTitleLang: z.string().max(20).optional().openapi({ example: "en", description: "Language code for book title translation" }),
+});
+
 export const BookPageParam = z.object({
   id: z.string().max(50).openapi({ example: "123" }),
   page: z.coerce.number().int().min(0).max(999999).openapi({ example: 0, description: "Page number (0-based)" }),
@@ -74,6 +78,7 @@ export const BookDetailResponse = z.object({
     id: z.string(),
     titleArabic: z.string(),
     titleLatin: z.string().nullable(),
+    titleTranslated: z.string().nullable().optional(),
     filename: z.string(),
     totalVolumes: z.number(),
     totalPages: z.number().nullable(),

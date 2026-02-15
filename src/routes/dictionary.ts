@@ -270,45 +270,39 @@ dictionaryRoutes.openapi(lookupRoute, async (c) => {
     }
   }
 
-  // Step 1: Exact sub-entry match on headwordNormalized
+  // Batch 1: Exact sub-entry (tier 1) + exact full-entry (tier 3) in parallel
   if (definitions.length === 0) {
-    const exactSubs = await findSubEntriesByHeadword(wordNormalized, LOOKUP_LIMIT);
+    const [exactSubs, exactFull] = await Promise.all([
+      findSubEntriesByHeadword(wordNormalized, LOOKUP_LIMIT),
+      prisma.dictionaryEntry.findMany({
+        where: { headwordNormalized: wordNormalized },
+        include: { source: { select: SOURCE_SELECT } },
+        take: LOOKUP_LIMIT,
+      }),
+    ]);
     if (exactSubs.length > 0) {
       definitions = exactSubs.map((s) => subEntryToDefinition(s, "exact"));
       matchStrategy = "exact";
-    }
-  }
-
-  // Step 2: Stripped sub-entry match (strip ال)
-  if (definitions.length === 0 && stripped !== wordNormalized) {
-    const strippedSubs = await findSubEntriesByHeadword(stripped, LOOKUP_LIMIT);
-    if (strippedSubs.length > 0) {
-      definitions = strippedSubs.map((s) => subEntryToDefinition(s, "exact"));
-      matchStrategy = "exact_stripped";
-    }
-  }
-
-  // Step 3: Exact full-entry match on headwordNormalized
-  if (definitions.length === 0) {
-    const exactFull = await prisma.dictionaryEntry.findMany({
-      where: { headwordNormalized: wordNormalized },
-      include: { source: { select: SOURCE_SELECT } },
-      take: LOOKUP_LIMIT,
-    });
-    if (exactFull.length > 0) {
+    } else if (exactFull.length > 0) {
       definitions = exactFull.map((e) => fullEntryToDefinition(e, "exact", word));
       matchStrategy = "exact";
     }
   }
 
-  // Step 4: Stripped full-entry match
+  // Batch 2: Stripped sub-entry (tier 2) + stripped full-entry (tier 4) in parallel
   if (definitions.length === 0 && stripped !== wordNormalized) {
-    const strippedFull = await prisma.dictionaryEntry.findMany({
-      where: { headwordNormalized: stripped },
-      include: { source: { select: SOURCE_SELECT } },
-      take: LOOKUP_LIMIT,
-    });
-    if (strippedFull.length > 0) {
+    const [strippedSubs, strippedFull] = await Promise.all([
+      findSubEntriesByHeadword(stripped, LOOKUP_LIMIT),
+      prisma.dictionaryEntry.findMany({
+        where: { headwordNormalized: stripped },
+        include: { source: { select: SOURCE_SELECT } },
+        take: LOOKUP_LIMIT,
+      }),
+    ]);
+    if (strippedSubs.length > 0) {
+      definitions = strippedSubs.map((s) => subEntryToDefinition(s, "exact"));
+      matchStrategy = "exact_stripped";
+    } else if (strippedFull.length > 0) {
       definitions = strippedFull.map((e) => fullEntryToDefinition(e, "exact", word));
       matchStrategy = "exact_stripped";
     }

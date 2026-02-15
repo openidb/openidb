@@ -157,6 +157,31 @@ export const TranslationResponse = z.object({
   _sources: z.array(SourceSchema),
 }).openapi("TranslationDetail");
 
+// --- Word Translations ---
+
+export const WordTranslationPathParam = z.object({
+  surah: z.coerce.number().int().min(1).max(114).openapi({ example: 1 }),
+  ayah: z.coerce.number().int().min(1).max(286).openapi({ example: 1 }),
+});
+
+export const WordTranslationQuery = z.object({
+  language: z.string().max(10).default("en").openapi({ example: "en" }),
+});
+
+export const WordSchema = z.object({
+  position: z.number(),
+  text: z.string(),
+  transliteration: z.string().nullable(),
+});
+
+export const WordTranslationResponse = z.object({
+  surahNumber: z.number(),
+  ayahNumber: z.number(),
+  language: z.string(),
+  words: z.array(WordSchema),
+  _sources: z.array(SourceSchema),
+}).openapi("WordTranslationDetail");
+
 // --- Reciters / Audio ---
 
 export const ReciterSchema = z.object({

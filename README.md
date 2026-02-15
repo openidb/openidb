@@ -30,7 +30,7 @@ Built with Hono, PostgreSQL, Qdrant, Elasticsearch, and Neo4j.
 
 ## Data
 
-- **Quran** — 114 surahs, 6,236 ayahs (Uthmani script), 500+ translation editions across 90+ languages, 27 tafsirs in 6 languages, 100+ audio reciters from 4 sources
+- **Quran** — 114 surahs, 6,236 ayahs (Uthmani script), ~700 translation editions across 90+ languages (500+ from fawazahmed0 + 192 from QUL), 136 tafsirs (27 from spa5k + 109 from QUL), word-by-word translations in 12 languages (929K+ words), 100+ audio reciters from 4 sources
 - **Hadith** — 24 collections (166,964 hadiths) from two sources:
   - **[sunnah.com](https://sunnah.com/)** — 17 collections (49,618 hadiths): Bukhari, Muslim, Abu Dawud, Tirmidhi, Nasa'i, Ibn Majah, Ahmad, Malik, Darimi, Riyad as-Salihin, Al-Adab Al-Mufrad, Ash-Shama'il, Mishkat al-Masabih, Bulugh al-Maram, Nawawi's 40, 40 Qudsi, Hisn al-Muslim
   - **[hadithunlocked.com](https://hadithunlocked.com/)** — 7 collections (117,346 hadiths) with full tashkeel, isnad/matn separation, grading, and English translations: Mustadrak al-Hakim, Sahih Ibn Hibban, Al-Mu'jam al-Kabir, Sunan al-Kubra (Bayhaqi), Sunan al-Kubra (Nasa'i), Jam' al-Jawami' (Suyuti), Al-Zuhd (Ahmad)
@@ -66,6 +66,7 @@ Base URL: `http://localhost:4000`
 | `GET /api/books/authors/:id` | Author with bibliography |
 | `GET /api/books/categories` | Category tree |
 | `GET /api/books/categories/:id` | Category with books |
+| `GET /api/quran/word-translations/:surah/:ayah` | Word-by-word translations for an ayah |
 | `GET /api/dictionary/lookup/:word` | Look up a word across all dictionaries |
 | `GET /api/dictionary/root/:root` | Word family for a root |
 | `GET /api/dictionary/resolve/:word` | Resolve a word to its root |
@@ -245,6 +246,18 @@ bun run pipelines/import/import-quran-translations.ts --edition=eng-mustafakhatt
 bun run pipelines/import/import-tafsirs.ts --all                                 # All tafsirs (27 editions)
 bun run pipelines/import/import-tafsirs.ts --lang=en                             # By language
 
+# QUL / Tarteel AI (192 translations + 109 tafsirs, curated multilingual editions)
+bun run pipelines/import/import-qul-translations.ts --all                        # All QUL translations (192 editions)
+bun run pipelines/import/import-qul-translations.ts --lang=en,ar                 # By language
+bun run pipelines/import/import-qul-translations.ts --id=20                      # Single edition by QUL resource ID
+bun run pipelines/import/import-qul-tafsirs.ts --all                             # All QUL tafsirs (109 editions)
+bun run pipelines/import/import-qul-tafsirs.ts --lang=ar                         # By language
+bun run pipelines/import/import-qul-tafsirs.ts --id=14                           # Single edition by QUL resource ID
+
+# Word-by-word translations (from quran.com API, 12 languages)
+bun run pipelines/import/import-word-translations.ts --lang=en                   # English word-by-word
+bun run pipelines/import/import-word-translations.ts --all                       # All available languages
+
 # Quran Audio (100+ reciters from EveryAyah, Al Quran Cloud, Quran Foundation, Tarteel)
 bun run pipelines/import/import-quran-audio.ts --source=everyayah                # Download from a source
 bun run pipelines/import/import-quran-audio.ts --source=everyayah --reciter=alafasy-128kbps  # Single reciter
@@ -301,7 +314,10 @@ bun run pipelines/knowledge-graph/seed-neo4j.ts               # Seed Neo4j knowl
 |------|--------|---------|
 | **Text** | [Al Quran Cloud API](https://alquran.cloud/) | Uthmani script (Hafs an Asim), 6,236 ayahs |
 | **Translations** | [fawazahmed0/quran-api](https://github.com/fawazahmed0/quran-api) | 500+ editions, 90+ languages, via jsDelivr CDN |
+| | [QUL / Tarteel AI](https://qul.tarteel.ai/) | 192 editions, 75+ languages — curated translations |
 | **Tafsirs** | [spa5k/tafsir_api](https://github.com/spa5k/tafsir_api) | 27 editions, 6 languages — includes Ibn Kathir, al-Jalalayn, al-Tabari, al-Muyassar |
+| | [QUL / Tarteel AI](https://qul.tarteel.ai/) | 109 editions — classical Arabic tafsirs including al-Razi, al-Zamakhshari, al-Alusi, al-Wahidi |
+| **Word-by-Word** | [Quran.com](https://quran.com/) | Per-word translations in 12 languages (929K+ words) |
 | **Audio** | [EveryAyah.com](https://everyayah.com/) | Per-ayah MP3 recitations, ~70 reciters, multiple bitrates and styles |
 | | [Al Quran Cloud CDN](https://cdn.islamic.network/) | 27 audio editions |
 | | [Quran Foundation](https://quran.com/) | 9 high-quality reciters (192 kbps) |

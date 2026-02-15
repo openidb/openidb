@@ -75,18 +75,27 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
   }));
   const expandedQueries = expanded.map(e => ({ query: e.query, reason: e.reason }));
 
-  // Step 2: Execute parallel searches for all expanded queries
+  // Step 2: Pre-generate all embeddings in parallel before starting searches
   const searchesTimer = startTimer();
   const perQueryTimings: number[] = [];
 
+  const precomputedEmbeddings = await Promise.all(
+    expanded.map((exp) => {
+      if (shouldSkipSemanticSearch(exp.query)) return Promise.resolve(undefined);
+      return generateEmbeddingFn(normalizeArabicText(exp.query)).catch((err) => {
+        console.error("[RefineSearch] embedding error:", err.message);
+        return undefined;
+      });
+    })
+  );
+
+  // Step 3: Execute parallel searches for all expanded queries (embeddings already ready)
   const querySearches = expanded.map(async (exp, queryIndex) => {
     const queryTimer = startTimer();
     const q = exp.query;
     const weight = exp.weight;
 
-    const normalizedQ = normalizeArabicText(q);
-    const shouldSkipSemantic = shouldSkipSemanticSearch(q);
-    const qEmbedding = shouldSkipSemantic ? undefined : await generateEmbeddingFn(normalizedQ);
+    const qEmbedding = precomputedEmbeddings[queryIndex];
 
     const [bookSemantic, bookKeyword] = await Promise.all([
       semanticSearch(q, refineBookPerQuery, null, refineSimilarityCutoff, qEmbedding, embeddingModel).catch(err => { console.error("[RefineSearch] search error:", err.message); return []; }),
@@ -149,7 +158,7 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
 
   const totalBeforeMerge = queryStats.reduce((sum, q) => sum + q.docsRetrieved, 0);
 
-  // Step 3: Merge and deduplicate
+  // Step 4: Merge and deduplicate
   const mergeTimer = startTimer();
   const mergedBooks = includeBooks ? mergeAndDeduplicateBooks(allResults.map(r => r.books)) : [];
   const mergedAyahs = includeQuran ? mergeAndDeduplicateAyahs(allResults.map(r => r.ayahs)) : [];
@@ -158,7 +167,7 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
 
   const afterMerge = { books: mergedBooks.length, ayahs: mergedAyahs.length, hadiths: mergedHadiths.length };
 
-  // Step 4: Unified cross-type reranking
+  // Step 5: Unified cross-type reranking
   const rerankTimer = startTimer();
   const preRerankBookIds = [...new Set(mergedBooks.slice(0, 30).map((r) => r.bookId))];
   const preRerankBookMap = await getBookMetadataForReranking(preRerankBookIds, bookMetadataCache);

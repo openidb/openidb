@@ -1,10 +1,10 @@
 /**
  * Sync Data to Elasticsearch
  *
- * Syncs pages, hadiths, and ayahs from PostgreSQL to Elasticsearch.
+ * Syncs pages, hadiths, ayahs, books, and authors from PostgreSQL to Elasticsearch.
  * Uses bulk indexing for performance.
  *
- * Usage: bun run scripts/sync-elasticsearch.ts [--skip-pages]
+ * Usage: bun run pipelines/index/sync-elasticsearch.ts [--skip-pages] [--only-catalog]
  */
 
 import "../env";
@@ -14,10 +14,13 @@ import {
   ES_PAGES_INDEX,
   ES_HADITHS_INDEX,
   ES_AYAHS_INDEX,
+  ES_BOOKS_INDEX,
+  ES_AUTHORS_INDEX,
 } from "../../src/search/elasticsearch";
 // Types are handled inline
 
 const skipPagesFlag = process.argv.includes("--skip-pages");
+const onlyCatalogFlag = process.argv.includes("--only-catalog");
 const BATCH_SIZE = 1000;
 
 interface BulkOperation {
@@ -290,6 +293,147 @@ async function syncAyahs() {
   console.log(`\nElasticsearch ayahs count: ${esCount.count}`);
 }
 
+async function syncBooks() {
+  console.log("\n=== Syncing Books ===");
+
+  const totalCount = await prisma.book.count();
+  console.log(`Total books in PostgreSQL: ${totalCount}`);
+
+  let processed = 0;
+  let offset = 0;
+
+  while (offset < totalCount) {
+    const books = await prisma.book.findMany({
+      skip: offset,
+      take: BATCH_SIZE,
+      select: {
+        id: true,
+        titleArabic: true,
+        titleLatin: true,
+        authorId: true,
+        categoryId: true,
+        author: {
+          select: { nameArabic: true, nameLatin: true },
+        },
+      },
+    });
+
+    if (books.length === 0) break;
+
+    const bulkBody: BulkBody = [];
+
+    for (const book of books) {
+      bulkBody.push({
+        index: {
+          _index: ES_BOOKS_INDEX,
+          _id: book.id,
+        },
+      });
+      bulkBody.push({
+        id: book.id,
+        title_arabic: book.titleArabic,
+        title_latin: book.titleLatin,
+        author_name_arabic: book.author?.nameArabic || null,
+        author_name_latin: book.author?.nameLatin || null,
+        author_id: book.authorId,
+        category_id: book.categoryId,
+      });
+    }
+
+    const result = await elasticsearch.bulk({ body: bulkBody, refresh: false });
+
+    if (result.errors) {
+      const errorItems = result.items.filter((item) => item.index?.error);
+      console.error(`Bulk errors: ${errorItems.length}`);
+      if (errorItems.length > 0) {
+        console.error("First error:", JSON.stringify(errorItems[0].index?.error, null, 2));
+      }
+    }
+
+    processed += books.length;
+    offset += BATCH_SIZE;
+
+    const pct = ((processed / totalCount) * 100).toFixed(1);
+    process.stdout.write(`\rIndexed: ${processed}/${totalCount} (${pct}%)`);
+  }
+
+  await elasticsearch.indices.refresh({ index: ES_BOOKS_INDEX });
+
+  const esCount = await elasticsearch.count({ index: ES_BOOKS_INDEX });
+  console.log(`\nElasticsearch books count: ${esCount.count}`);
+}
+
+async function syncAuthors() {
+  console.log("\n=== Syncing Authors ===");
+
+  const totalCount = await prisma.author.count();
+  console.log(`Total authors in PostgreSQL: ${totalCount}`);
+
+  let processed = 0;
+  let offset = 0;
+
+  while (offset < totalCount) {
+    const authors = await prisma.author.findMany({
+      skip: offset,
+      take: BATCH_SIZE,
+      select: {
+        id: true,
+        nameArabic: true,
+        nameLatin: true,
+        kunya: true,
+        nasab: true,
+        nisba: true,
+        laqab: true,
+        deathDateHijri: true,
+      },
+    });
+
+    if (authors.length === 0) break;
+
+    const bulkBody: BulkBody = [];
+
+    for (const author of authors) {
+      bulkBody.push({
+        index: {
+          _index: ES_AUTHORS_INDEX,
+          _id: author.id,
+        },
+      });
+      bulkBody.push({
+        id: author.id,
+        name_arabic: author.nameArabic,
+        name_latin: author.nameLatin,
+        kunya: author.kunya,
+        nasab: author.nasab,
+        nisba: author.nisba,
+        laqab: author.laqab,
+        death_date_hijri: author.deathDateHijri,
+      });
+    }
+
+    const result = await elasticsearch.bulk({ body: bulkBody, refresh: false });
+
+    if (result.errors) {
+      const errorItems = result.items.filter((item) => item.index?.error);
+      console.error(`Bulk errors: ${errorItems.length}`);
+      if (errorItems.length > 0) {
+        console.error("First error:", JSON.stringify(errorItems[0].index?.error, null, 2));
+      }
+    }
+
+    processed += authors.length;
+    offset += BATCH_SIZE;
+
+    const pct = ((processed / totalCount) * 100).toFixed(1);
+    process.stdout.write(`\rIndexed: ${processed}/${totalCount} (${pct}%)`);
+  }
+
+  await elasticsearch.indices.refresh({ index: ES_AUTHORS_INDEX });
+
+  const esCount = await elasticsearch.count({ index: ES_AUTHORS_INDEX });
+  console.log(`\nElasticsearch authors count: ${esCount.count}`);
+}
+
 async function main() {
   console.log("Starting Elasticsearch sync...");
   console.log(`Elasticsearch URL: ${process.env.ELASTICSEARCH_URL || "http://localhost:9200"}`);
@@ -305,30 +449,46 @@ async function main() {
 
   const startTime = Date.now();
 
-  if (skipPagesFlag) {
-    console.log("Skipping pages sync (--skip-pages mode)");
+  if (onlyCatalogFlag) {
+    console.log("Syncing only catalog indices (--only-catalog mode)");
+    await syncBooks();
+    await syncAuthors();
   } else {
-    await syncPages();
+    if (skipPagesFlag) {
+      console.log("Skipping pages sync (--skip-pages mode)");
+    } else {
+      await syncPages();
+    }
+    await syncHadiths();
+    await syncAyahs();
+    await syncBooks();
+    await syncAuthors();
   }
-  await syncHadiths();
-  await syncAyahs();
 
   const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\n=== Sync completed in ${totalTime}s ===`);
 
   // Final summary
-  const [hadithsCount, ayahsCount] = await Promise.all([
-    elasticsearch.count({ index: ES_HADITHS_INDEX }),
-    elasticsearch.count({ index: ES_AYAHS_INDEX }),
+  const [booksCount, authorsCount] = await Promise.all([
+    elasticsearch.count({ index: ES_BOOKS_INDEX }),
+    elasticsearch.count({ index: ES_AUTHORS_INDEX }),
   ]);
 
   console.log("\nFinal counts:");
-  if (!skipPagesFlag) {
-    const pagesCount = await elasticsearch.count({ index: ES_PAGES_INDEX });
-    console.log(`  Pages:   ${pagesCount.count}`);
+  if (!onlyCatalogFlag) {
+    if (!skipPagesFlag) {
+      const pagesCount = await elasticsearch.count({ index: ES_PAGES_INDEX });
+      console.log(`  Pages:   ${pagesCount.count}`);
+    }
+    const [hadithsCount, ayahsCount] = await Promise.all([
+      elasticsearch.count({ index: ES_HADITHS_INDEX }),
+      elasticsearch.count({ index: ES_AYAHS_INDEX }),
+    ]);
+    console.log(`  Hadiths: ${hadithsCount.count}`);
+    console.log(`  Ayahs:   ${ayahsCount.count}`);
   }
-  console.log(`  Hadiths: ${hadithsCount.count}`);
-  console.log(`  Ayahs:   ${ayahsCount.count}`);
+  console.log(`  Books:   ${booksCount.count}`);
+  console.log(`  Authors: ${authorsCount.count}`);
 
   await prisma.$disconnect();
 }

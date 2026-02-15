@@ -11,9 +11,10 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ErrorResponse } from "../schemas/common";
 import {
   BookIdParam, BookPageParam,
-  BookListQuery, BookPagesQuery, TranslateBody,
+  BookListQuery, BookDetailQuery, BookPagesQuery, TranslateBody,
   BookListResponse, BookDetailResponse, PageDetailResponse, PageListResponse, TranslateResponse,
 } from "../schemas/books";
+import { searchBooksES } from "../search/elasticsearch-catalog";
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en: "English", fr: "French", id: "Indonesian", ur: "Urdu",
@@ -97,7 +98,7 @@ const getBook = createRoute({
   path: "/{id}",
   tags: ["Books"],
   summary: "Get book by ID",
-  request: { params: BookIdParam },
+  request: { params: BookIdParam, query: BookDetailQuery },
   responses: {
     200: {
       content: { "application/json": { schema: BookDetailResponse } },
@@ -207,81 +208,99 @@ export const booksRoutes = new OpenAPIHono();
 booksRoutes.openapi(listBooks, async (c) => {
   const { limit, offset, search, authorId, categoryId, century, bookTitleLang } = c.req.valid("query");
 
-  const where: Record<string, unknown> = {};
-  if (search) {
-    where.OR = [
-      { titleArabic: { contains: search, mode: "insensitive" } },
-      { titleLatin: { contains: search, mode: "insensitive" } },
-    ];
-  }
-  if (authorId) where.authorId = authorId;
-  if (categoryId) {
-    const ids = categoryId.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0);
-    if (ids.length === 1) where.categoryId = ids[0];
-    else if (ids.length > 1) where.categoryId = { in: ids };
-  }
+  // Resolve century filter to author IDs (shared by both ES and ILIKE paths)
+  let centuryAuthorIds: string[] | null = null;
   if (century) {
     const centuries = century.split(",").map(Number).filter((n) => n >= 1 && n <= 15);
     if (centuries.length > 0) {
-      // For each century N, author death year is in range ((N-1)*100, N*100]
-      const authorIds = await prisma.$queryRaw<{ id: string }[]>`
+      const authorRows = await prisma.$queryRaw<{ id: string }[]>`
         SELECT id FROM authors
         WHERE death_date_hijri ~ '^[0-9]+$'
           AND CEIL(CAST(death_date_hijri AS DOUBLE PRECISION) / 100)::int = ANY(${centuries})
       `;
-      const ids = authorIds.map((a) => a.id);
-      if (ids.length > 0) {
-        where.authorId = where.authorId
-          ? { in: [where.authorId as string].filter((id) => ids.includes(id)) }
-          : { in: ids };
-      } else {
-        // No authors match these centuries — return empty
-        where.authorId = { in: [] };
+      centuryAuthorIds = authorRows.map((a) => a.id);
+      if (centuryAuthorIds.length === 0) {
+        // No authors match these centuries — return empty immediately
+        return c.json({ books: [], total: 0, limit, offset, _sources: [...SOURCES.turath] }, 200);
       }
     }
   }
 
-  // Build raw WHERE clauses for numeric ID sorting (Prisma can't ORDER BY CAST)
+  // Try ES search when search param is present
+  let esIds: string[] | null = null;
+  if (search) {
+    esIds = await searchBooksES(search, 1000);
+    // esIds === null means ES unavailable → will fall back to ILIKE below
+    // esIds === [] means ES found nothing → return empty
+    if (esIds !== null && esIds.length === 0) {
+      return c.json({ books: [], total: 0, limit, offset, _sources: [...SOURCES.turath] }, 200);
+    }
+  }
+
+  // Build raw WHERE clauses
   const conditions: string[] = [];
   const params: unknown[] = [];
   let paramIdx = 1;
 
-  if (search) {
+  if (esIds !== null && esIds.length > 0) {
+    // ES provided ranked IDs — filter to those IDs
+    conditions.push(`b.id = ANY($${paramIdx})`);
+    params.push(esIds);
+    paramIdx++;
+  } else if (search) {
+    // ES unavailable — fall back to ILIKE
     conditions.push(`(b.title_arabic ILIKE $${paramIdx} OR b.title_latin ILIKE $${paramIdx})`);
     params.push(`%${search}%`);
     paramIdx++;
   }
-  if (where.authorId) {
-    const av = where.authorId as string | { in: string[] };
-    if (typeof av === "string") {
+
+  if (authorId) {
+    if (centuryAuthorIds) {
+      // Both authorId and century — intersect
+      const intersection = centuryAuthorIds.includes(authorId) ? [authorId] : [];
+      if (intersection.length === 0) {
+        return c.json({ books: [], total: 0, limit, offset, _sources: [...SOURCES.turath] }, 200);
+      }
       conditions.push(`b.author_id = $${paramIdx}`);
-      params.push(av);
+      params.push(authorId);
       paramIdx++;
-    } else if (av.in) {
-      conditions.push(`b.author_id = ANY($${paramIdx})`);
-      params.push(av.in);
+    } else {
+      conditions.push(`b.author_id = $${paramIdx}`);
+      params.push(authorId);
       paramIdx++;
     }
+  } else if (centuryAuthorIds) {
+    conditions.push(`b.author_id = ANY($${paramIdx})`);
+    params.push(centuryAuthorIds);
+    paramIdx++;
   }
-  if (where.categoryId) {
-    const cv = where.categoryId as number | { in: number[] };
-    if (typeof cv === "number") {
+
+  if (categoryId) {
+    const ids = categoryId.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0);
+    if (ids.length === 1) {
       conditions.push(`b.category_id = $${paramIdx}`);
-      params.push(cv);
+      params.push(ids[0]);
       paramIdx++;
-    } else if (cv.in) {
+    } else if (ids.length > 1) {
       conditions.push(`b.category_id = ANY($${paramIdx})`);
-      params.push(cv.in);
+      params.push(ids);
       paramIdx++;
     }
   }
 
   const whereSQL = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
+  // When ES provides ranked IDs, preserve ES relevance order; otherwise sort by numeric ID
+  const useESOrder = esIds !== null && esIds.length > 0;
+  const orderSQL = useESOrder
+    ? `ORDER BY array_position($${paramIdx}::text[], b.id)`
+    : `ORDER BY CAST(b.id AS INTEGER)`;
+  const orderParams = useESOrder ? [esIds] : [];
+
   const [idRows, countRows] = await Promise.all([
     prisma.$queryRawUnsafe<{ id: string }[]>(
-      `SELECT b.id FROM books b ${whereSQL} ORDER BY CAST(b.id AS INTEGER) LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-      ...params, limit, offset,
+      `SELECT b.id FROM books b ${whereSQL} ${orderSQL} LIMIT $${paramIdx + orderParams.length} OFFSET $${paramIdx + orderParams.length + 1}`,
+      ...params, ...orderParams, limit, offset,
     ),
     prisma.$queryRawUnsafe<{ count: bigint }[]>(
       `SELECT COUNT(*)::bigint AS count FROM books b ${whereSQL}`,
@@ -349,65 +368,80 @@ booksRoutes.openapi(listBooks, async (c) => {
 
 booksRoutes.openapi(getBook, async (c) => {
   const { id } = c.req.valid("param");
+  const { bookTitleLang } = c.req.valid("query");
 
-  const book = await prisma.book.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      titleArabic: true,
-      titleLatin: true,
-      filename: true,
-      totalVolumes: true,
-      totalPages: true,
-      publicationYearHijri: true,
-      publicationYearGregorian: true,
-      publicationEdition: true,
-      verificationStatus: true,
-      descriptionHtml: true,
-      summary: true,
-      tableOfContents: true,
-      author: {
-        select: {
-          id: true,
-          nameArabic: true,
-          nameLatin: true,
-          deathDateHijri: true,
-          deathDateGregorian: true,
+  const [book, lastPage] = await Promise.all([
+    prisma.book.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        titleArabic: true,
+        titleLatin: true,
+        filename: true,
+        totalVolumes: true,
+        totalPages: true,
+        publicationYearHijri: true,
+        publicationYearGregorian: true,
+        publicationEdition: true,
+        verificationStatus: true,
+        descriptionHtml: true,
+        summary: true,
+        tableOfContents: true,
+        author: {
+          select: {
+            id: true,
+            nameArabic: true,
+            nameLatin: true,
+            deathDateHijri: true,
+            deathDateGregorian: true,
+          },
         },
+        category: {
+          select: { id: true, nameArabic: true, nameEnglish: true },
+        },
+        publisher: {
+          select: { name: true, location: true },
+        },
+        editor: {
+          select: { name: true },
+        },
+        keywords: {
+          select: { keyword: true },
+        },
+        ...(bookTitleLang && bookTitleLang !== "none" && bookTitleLang !== "transliteration"
+          ? {
+              titleTranslations: {
+                where: { language: bookTitleLang },
+                select: { title: true },
+                take: 1,
+              },
+            }
+          : {}),
       },
-      category: {
-        select: { id: true, nameArabic: true, nameEnglish: true },
-      },
-      publisher: {
-        select: { name: true, location: true },
-      },
-      editor: {
-        select: { name: true },
-      },
-      keywords: {
-        select: { keyword: true },
-      },
-    },
-  });
+    }),
+    prisma.page.findFirst({
+      where: { bookId: id, printedPageNumber: { not: null } },
+      orderBy: { printedPageNumber: "desc" },
+      select: { printedPageNumber: true },
+    }),
+  ]);
 
   if (!book) {
     return c.json({ error: "Book not found" }, 404);
   }
 
-  // Get the last printed page number for accurate pagination display
-  const lastPage = await prisma.page.findFirst({
-    where: { bookId: id, printedPageNumber: { not: null } },
-    orderBy: { printedPageNumber: "desc" },
-    select: { printedPageNumber: true },
-  });
+  const { titleTranslations, ...rest } = book as typeof book & {
+    titleTranslations?: { title: string }[];
+  };
 
   return c.json({
     book: {
-      ...book,
+      ...rest,
+      titleTranslated: titleTranslations?.[0]?.title || null,
       maxPrintedPage: lastPage?.printedPageNumber ?? book.totalPages,
-      displayDate: book.author?.deathDateHijri || book.publicationYearHijri || null,
-      displayDateType: book.author?.deathDateHijri ? "death" : book.publicationYearHijri ? "publication" : null,
-      referenceUrl: generateBookReferenceUrl(book.id),
+      displayDate: rest.author?.deathDateHijri || rest.publicationYearHijri || null,
+      displayDateType: rest.author?.deathDateHijri ? "death" : rest.publicationYearHijri ? "publication" : null,
+      referenceUrl: generateBookReferenceUrl(rest.id),
     },
     _sources: [...SOURCES.turath],
   }, 200);
@@ -436,6 +470,7 @@ booksRoutes.openapi(translatePage, async (c) => {
   // Check cache
   const existing = await prisma.pageTranslation.findUnique({
     where: { pageId_language: { pageId: page.id, language: lang } },
+    select: { paragraphs: true, contentHash: true },
   });
   if (existing) {
     return c.json({ paragraphs: existing.paragraphs as any, contentHash: existing.contentHash, cached: true }, 200);

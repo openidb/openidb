@@ -18,7 +18,7 @@ import type { IndicesCreateRequest } from "@elastic/elasticsearch/lib/api/types"
  * 3. Normalize teh marbuta: \u0629 \u2192 \u0647
  * 4. Remove Arabic stopwords
  */
-const arabicAnalyzerSettings = {
+export const arabicAnalyzerSettings = {
   analysis: {
     char_filter: {
       arabic_normalize: {
@@ -247,6 +247,101 @@ export const ayahsIndexConfig: IndicesCreateRequest = {
       surah_number: { type: "integer" },
       surah_name_arabic: { type: "keyword" },
       surah_name_english: { type: "keyword" },
+    },
+  },
+};
+
+/**
+ * Books catalog index configuration
+ * Lightweight index for book search (title + author name)
+ */
+export const booksIndexConfig: IndicesCreateRequest = {
+  index: "books_catalog",
+  settings: {
+    ...arabicAnalyzerSettings,
+    number_of_shards: 1,
+    number_of_replicas: 0,
+  },
+  mappings: {
+    properties: {
+      id: { type: "keyword" },
+      title_arabic: {
+        type: "text",
+        analyzer: "arabic_normalized",
+        search_analyzer: "arabic_normalized",
+        fields: {
+          exact: {
+            type: "text",
+            analyzer: "arabic_normalized_no_stop",
+            search_analyzer: "arabic_normalized_no_stop",
+          },
+        },
+      },
+      title_latin: {
+        type: "text",
+        analyzer: "standard",
+      },
+      author_name_arabic: {
+        type: "text",
+        analyzer: "arabic_normalized",
+      },
+      author_name_latin: {
+        type: "text",
+        analyzer: "standard",
+      },
+      author_id: { type: "keyword" },
+      category_id: { type: "integer" },
+    },
+  },
+};
+
+/**
+ * Authors catalog index configuration
+ * Searchable by name, kunya, nasab, nisba, laqab
+ */
+export const authorsIndexConfig: IndicesCreateRequest = {
+  index: "authors_catalog",
+  settings: {
+    ...arabicAnalyzerSettings,
+    number_of_shards: 1,
+    number_of_replicas: 0,
+  },
+  mappings: {
+    properties: {
+      id: { type: "keyword" },
+      name_arabic: {
+        type: "text",
+        analyzer: "arabic_normalized",
+        search_analyzer: "arabic_normalized",
+        fields: {
+          exact: {
+            type: "text",
+            analyzer: "arabic_normalized_no_stop",
+            search_analyzer: "arabic_normalized_no_stop",
+          },
+        },
+      },
+      name_latin: {
+        type: "text",
+        analyzer: "standard",
+      },
+      kunya: {
+        type: "text",
+        analyzer: "arabic_normalized",
+      },
+      nasab: {
+        type: "text",
+        analyzer: "arabic_normalized",
+      },
+      nisba: {
+        type: "text",
+        analyzer: "arabic_normalized",
+      },
+      laqab: {
+        type: "text",
+        analyzer: "arabic_normalized",
+      },
+      death_date_hijri: { type: "keyword" },
     },
   },
 };

@@ -12,7 +12,7 @@ export const SearchQuery = z.object({
   mode: z.enum(["hybrid", "semantic", "keyword"]).default("hybrid").openapi({ example: "hybrid" }),
   includeQuran: z.enum(["true", "false"]).default("true"),
   includeHadith: z.enum(["true", "false"]).default("true"),
-  includeBooks: z.enum(["true", "false"]).default("true"),
+  includeBooks: z.enum(["true", "false"]).default("false"),
   reranker: z.enum(["gpt-oss-20b", "gpt-oss-120b", "gemini-flash", "jina", "none"]).default("none"),
   embeddingModel: z.enum(["gemini", "jina"]).default("gemini"),
   similarityCutoff: z.coerce.number().min(0).max(1).default(DEFAULT_SIMILARITY_CUTOFF),

@@ -10,6 +10,7 @@ import {
   SurahListResponse, SurahDetailResponse, AyahListResponse,
   TafsirListResponse, TafsirResponse,
   TranslationListResponse, TranslationResponse,
+  WordTranslationPathParam, WordTranslationQuery, WordTranslationResponse,
   ReciterListQuery, ReciterListResponse, AudioPathParam, AudioQuery,
 } from "../schemas/quran";
 
@@ -122,6 +123,23 @@ const getTranslation = createRoute({
   },
 });
 
+const getWordTranslations = createRoute({
+  method: "get",
+  path: "/word-translations/{surah}/{ayah}",
+  tags: ["Quran"],
+  summary: "Get word-by-word translations for an ayah",
+  request: {
+    params: WordTranslationPathParam,
+    query: WordTranslationQuery,
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: WordTranslationResponse } },
+      description: "Word-by-word translations for the ayah",
+    },
+  },
+});
+
 const listReciters = createRoute({
   method: "get",
   path: "/reciters",
@@ -157,21 +175,41 @@ const getAudio = createRoute({
   },
 });
 
+// --- In-memory cache for static data (10-minute TTL) ---
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const quranCache = new Map<string, { data: unknown; expiry: number }>();
+
+function getCached<T>(key: string): T | null {
+  const entry = quranCache.get(key);
+  if (entry && Date.now() < entry.expiry) return entry.data as T;
+  quranCache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: unknown) {
+  quranCache.set(key, { data, expiry: Date.now() + CACHE_TTL_MS });
+}
+
 // --- Handlers ---
 
 export const quranRoutes = new OpenAPIHono();
 
 quranRoutes.openapi(listSurahs, async (c) => {
-  const surahs = await prisma.surah.findMany({
-    orderBy: { number: "asc" },
-    select: {
-      number: true,
-      nameArabic: true,
-      nameEnglish: true,
-      revelationType: true,
-      ayahCount: true,
-    },
-  });
+  const cacheKey = "surahs";
+  let surahs = getCached<any[]>(cacheKey);
+  if (!surahs) {
+    surahs = await prisma.surah.findMany({
+      orderBy: { number: "asc" },
+      select: {
+        number: true,
+        nameArabic: true,
+        nameEnglish: true,
+        revelationType: true,
+        ayahCount: true,
+      },
+    });
+    setCache(cacheKey, surahs);
+  }
   c.header("Cache-Control", "public, max-age=3600");
   return c.json({
     surahs,
@@ -265,13 +303,17 @@ quranRoutes.openapi(listAyahs, async (c) => {
 
 quranRoutes.openapi(listTafsirs, async (c) => {
   const { language } = c.req.valid("query");
-  const where: Record<string, unknown> = {};
-  if (language) where.language = language;
-
-  const tafsirs = await prisma.quranTafsir.findMany({
-    where,
-    orderBy: [{ language: "asc" }, { name: "asc" }],
-  });
+  const cacheKey = `tafsirs:${language || "all"}`;
+  let tafsirs = getCached<any[]>(cacheKey);
+  if (!tafsirs) {
+    const where: Record<string, unknown> = {};
+    if (language) where.language = language;
+    tafsirs = await prisma.quranTafsir.findMany({
+      where,
+      orderBy: [{ language: "asc" }, { name: "asc" }],
+    });
+    setCache(cacheKey, tafsirs);
+  }
 
   return c.json({ tafsirs, count: tafsirs.length }, 200);
 });
@@ -303,13 +345,17 @@ quranRoutes.openapi(getTafsir, async (c) => {
 
 quranRoutes.openapi(listTranslations, async (c) => {
   const { language } = c.req.valid("query");
-  const where: Record<string, unknown> = {};
-  if (language) where.language = language;
-
-  const translations = await prisma.quranTranslation.findMany({
-    where,
-    orderBy: [{ language: "asc" }, { name: "asc" }],
-  });
+  const cacheKey = `translations:${language || "all"}`;
+  let translations = getCached<any[]>(cacheKey);
+  if (!translations) {
+    const where: Record<string, unknown> = {};
+    if (language) where.language = language;
+    translations = await prisma.quranTranslation.findMany({
+      where,
+      orderBy: [{ language: "asc" }, { name: "asc" }],
+    });
+    setCache(cacheKey, translations);
+  }
 
   return c.json({ translations, count: translations.length }, 200);
 });
@@ -335,6 +381,32 @@ quranRoutes.openapi(getTranslation, async (c) => {
       sourceUrl: generateTranslationSourceUrl(t.editionId),
     })),
     _sources: [...SOURCES.quranTranslation],
+  }, 200);
+});
+
+// --- Word-by-Word Translations ---
+
+quranRoutes.openapi(getWordTranslations, async (c) => {
+  const { surah: surahNumber, ayah: ayahNumber } = c.req.valid("param");
+  const { language } = c.req.valid("query");
+
+  const words = await prisma.wordTranslation.findMany({
+    where: { surahNumber, ayahNumber, language },
+    orderBy: { wordPosition: "asc" },
+    select: { wordPosition: true, text: true, transliteration: true },
+  });
+
+  c.header("Cache-Control", "public, max-age=86400");
+  return c.json({
+    surahNumber,
+    ayahNumber,
+    language,
+    words: words.map((w) => ({
+      position: w.wordPosition,
+      text: w.text,
+      transliteration: w.transliteration,
+    })),
+    _sources: [...SOURCES.wordTranslation],
   }, 200);
 });
 

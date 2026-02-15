@@ -13,6 +13,8 @@ import {
   pagesIndexConfig,
   hadithsIndexConfig,
   ayahsIndexConfig,
+  booksIndexConfig,
+  authorsIndexConfig,
 } from "../../src/search/elasticsearch-indices";
 
 async function createIndices() {
@@ -22,6 +24,8 @@ async function createIndices() {
     { name: "arabic_pages", config: pagesIndexConfig },
     { name: "arabic_hadiths", config: hadithsIndexConfig },
     { name: "arabic_ayahs", config: ayahsIndexConfig },
+    { name: "books_catalog", config: booksIndexConfig },
+    { name: "authors_catalog", config: authorsIndexConfig },
   ];
 
   for (const { name, config } of indices) {

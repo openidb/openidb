@@ -6,6 +6,7 @@ import {
   AuthorListQuery, AuthorIdParam,
   AuthorListResponse, AuthorDetailResponse,
 } from "../schemas/authors";
+import { searchAuthorsES } from "../search/elasticsearch-catalog";
 
 const listAuthors = createRoute({
   method: "get",
@@ -44,12 +45,29 @@ export const authorsRoutes = new OpenAPIHono();
 authorsRoutes.openapi(listAuthors, async (c) => {
   const { limit, offset, search, century } = c.req.valid("query");
 
+  // Try ES search when search param is present
+  let esIds: string[] | null = null;
+  if (search) {
+    esIds = await searchAuthorsES(search, 1000);
+    // esIds === null means ES unavailable → will fall back to ILIKE below
+    // esIds === [] means ES found nothing → return empty
+    if (esIds !== null && esIds.length === 0) {
+      return c.json({ authors: [], total: 0, limit, offset, _sources: [...SOURCES.turath] }, 200);
+    }
+  }
+
   // Build raw WHERE clauses for numeric ID sorting (id is a string column)
   const conditions: string[] = [];
   const params: unknown[] = [];
   let paramIdx = 1;
 
-  if (search) {
+  if (esIds !== null && esIds.length > 0) {
+    // ES provided ranked IDs — filter to those IDs
+    conditions.push(`a.id = ANY($${paramIdx})`);
+    params.push(esIds);
+    paramIdx++;
+  } else if (search) {
+    // ES unavailable — fall back to ILIKE
     conditions.push(`(a.name_arabic ILIKE $${paramIdx} OR a.name_latin ILIKE $${paramIdx})`);
     params.push(`%${search}%`);
     paramIdx++;
@@ -66,10 +84,17 @@ authorsRoutes.openapi(listAuthors, async (c) => {
 
   const whereSQL = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
+  // When ES provides ranked IDs, preserve ES relevance order; otherwise sort by numeric ID
+  const useESOrder = esIds !== null && esIds.length > 0;
+  const orderSQL = useESOrder
+    ? `ORDER BY array_position($${paramIdx}::text[], a.id)`
+    : `ORDER BY CAST(a.id AS INTEGER)`;
+  const orderParams = useESOrder ? [esIds] : [];
+
   const [idRows, countRows] = await Promise.all([
     prisma.$queryRawUnsafe<{ id: string }[]>(
-      `SELECT a.id FROM authors a ${whereSQL} ORDER BY CAST(a.id AS INTEGER) LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-      ...params, limit, offset,
+      `SELECT a.id FROM authors a ${whereSQL} ${orderSQL} LIMIT $${paramIdx + orderParams.length} OFFSET $${paramIdx + orderParams.length + 1}`,
+      ...params, ...orderParams, limit, offset,
     ),
     prisma.$queryRawUnsafe<{ count: bigint }[]>(
       `SELECT COUNT(*)::bigint AS count FROM authors a ${whereSQL}`,
