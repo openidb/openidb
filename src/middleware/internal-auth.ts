@@ -4,7 +4,7 @@ import type { Context, Next } from "hono";
 /**
  * Middleware that restricts access to internal-only endpoints.
  * Validates the X-Internal-Secret header against INTERNAL_API_SECRET env var.
- * Used for endpoints that should only be called by the frontend proxy (sabeel),
+ * Used for endpoints that should only be called by the frontend proxy,
  * not by external clients directly.
  */
 export async function internalAuth(c: Context, next: Next) {
