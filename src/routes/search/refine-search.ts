@@ -147,6 +147,7 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
   const queryStats = expanded.map((exp, idx) => ({
     query: exp.query,
     weight: exp.weight,
+    reason: exp.reason,
     docsRetrieved: allResults[idx].books.results.length +
                    allResults[idx].ayahs.results.length +
                    allResults[idx].hadiths.results.length,

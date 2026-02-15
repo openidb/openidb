@@ -21,29 +21,27 @@ export async function expandQueryWithCacheInfo(query: string, model: string = "g
 
 User Query: "${query.replace(/"/g, "'").replace(/[\r\n]+/g, " ").slice(0, 500)}"
 
-Generate exactly 4 alternative search queries:
+Generate exactly 2 alternative search queries:
 
-QUERY 1-2: PREDICTED ANSWER TEXT
-- Write a snippet of the ACTUAL Arabic text you expect to find in the answer
+QUERY 1: ENHANCED ARABIC QUERY
+- Translate, expand, or rephrase the query using Arabic root variations, synonyms, and related Islamic terminology
+- If the query is already Arabic, add related terms or rephrase with synonyms
+- If the query is in another language, translate to Arabic with rich terminology
+- Keep it 2-8 words, focused and searchable
+
+QUERY 2: PREDICTED ANSWER TEXT
+- Write a snippet of the ACTUAL Arabic source text you expect to find in the answer
 - Quote the beginning of the ayah, hadith, or passage that answers this query
 - Examples:
   - "ayat al-kursi" → "الله لا إله إلا هو الحي القيوم لا تأخذه سنة ولا نوم"
   - "5 before 5" → "اغتنم خمسا قبل خمس شبابك قبل هرمك وصحتك قبل سقمك"
-  - "the verse about patience" → "إنما يوفى الصابرون أجرهم بغير حساب"
 
-QUERY 3-4: ARABIC TRANSLATION & EXPANSION
-- Translate or expand the query into Arabic (or English if already Arabic)
-- Use Arabic root variations, synonyms, and related Islamic terminology
-- Examples:
-  - "prayer times" → "مواقيت الصلاة" or "أوقات الصلوات الخمس"
-  - "الزكاة" → "zakat obligation" or "أحكام الزكاة والصدقة"
-
-Return ONLY a JSON array of 4 query strings:
-["predicted answer 1", "predicted answer 2", "arabic expansion 1", "arabic expansion 2"]
+Return ONLY a JSON array of 2 query strings:
+["enhanced arabic query", "predicted answer text"]
 
 IMPORTANT:
 - For predicted answers, write the actual Arabic source text (ayah/hadith/passage), not a description
-- Keep expansion queries 2-8 words, focused and searchable
+- Keep the enhanced query 2-8 words, focused and searchable
 - Don't repeat the original query`;
 
     const modelId = getQueryExpansionModelId(model);
@@ -70,13 +68,14 @@ IMPORTANT:
       { query, weight: 1.0, reason: "Original query" },
     ];
 
-    for (let i = 0; i < Math.min(expanded.length, 4); i++) {
+    const reasons = ["Enhanced Arabic", "Predicted answer"];
+    for (let i = 0; i < Math.min(expanded.length, 2); i++) {
       const expQuery = typeof expanded[i] === 'string' ? expanded[i] : null;
       if (expQuery && expQuery.trim() && expQuery !== query) {
         results.push({
           query: expQuery.trim().slice(0, MAX_QUERY_LENGTH),
           weight: 1.0,
-          reason: `Expanded query ${i + 1}`,
+          reason: reasons[i],
         });
       }
     }

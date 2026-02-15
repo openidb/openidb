@@ -136,6 +136,7 @@ export interface TopResultBreakdown {
 export interface ExpandedQueryStats {
   query: string;
   weight: number;
+  reason?: string;
   docsRetrieved: number;
   books: number;
   ayahs: number;
