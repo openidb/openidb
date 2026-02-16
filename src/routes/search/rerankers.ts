@@ -166,7 +166,9 @@ STEP 2: RANK BY INTENT
 CROSS-LINGUAL MATCHING:
 - Match English to Arabic and vice versa
 
-Return ONLY a JSON array of document numbers by relevance: [3, 1, 5, 2, 4]`;
+IMPORTANT: Include ALL documents in your ranking. Do NOT filter out results — only omit a document if it is completely impossible that it relates to the query. When in doubt, include it at a lower rank.
+
+Return ONLY a JSON array of ALL document numbers ordered by relevance: [3, 1, 5, 2, 4]`;
 }
 
 function parseLLMRanking<T>(content: string, results: T[], topN: number): T[] | null {
@@ -390,10 +392,9 @@ RANKING PRIORITY:
 2. QUESTION: Documents that directly ANSWER rank highest
 3. TOPIC SEARCH: Primary sources directly about the topic rank highest
 
-FILTERING: Only include documents that actually address the query topic.
+IMPORTANT: Include ALL documents in your ranking. Do NOT filter out results — only omit a document if it is completely impossible that it relates to the query. When in doubt, include it at a lower rank. Prefer returning too many results over too few.
 
-Return ONLY a JSON array of document numbers by relevance (best first).
-If no documents are relevant, return an empty array []:
+Return ONLY a JSON array of ALL document numbers ordered by relevance (best first):
 [3, 1, 5, 2, ...]`;
 
     const config = RERANKER_CONFIG[reranker];

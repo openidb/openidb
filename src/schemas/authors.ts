@@ -10,6 +10,10 @@ export const AuthorIdParam = z.object({
   id: z.string().max(50).openapi({ example: "123", description: "Author ID" }),
 });
 
+export const AuthorDetailQuery = z.object({
+  bookTitleLang: z.string().max(20).optional().openapi({ example: "en", description: "Language code for book title translation" }),
+});
+
 export const AuthorSummary = z.object({
   id: z.string(),
   nameArabic: z.string(),
@@ -46,6 +50,7 @@ export const AuthorDetailResponse = z.object({
       id: z.string(),
       titleArabic: z.string(),
       titleLatin: z.string().nullable(),
+      titleTranslated: z.string().nullable().optional(),
     })),
   }),
   _sources: z.array(SourceSchema),

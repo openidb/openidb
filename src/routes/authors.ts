@@ -3,7 +3,7 @@ import { prisma } from "../db";
 import { SOURCES } from "../utils/source-urls";
 import { ErrorResponse } from "../schemas/common";
 import {
-  AuthorListQuery, AuthorIdParam,
+  AuthorListQuery, AuthorIdParam, AuthorDetailQuery,
   AuthorListResponse, AuthorDetailResponse,
 } from "../schemas/authors";
 import { searchAuthorsES } from "../search/elasticsearch-catalog";
@@ -27,7 +27,7 @@ const getAuthor = createRoute({
   path: "/{id}",
   tags: ["Authors"],
   summary: "Get author by ID",
-  request: { params: AuthorIdParam },
+  request: { params: AuthorIdParam, query: AuthorDetailQuery },
   responses: {
     200: {
       content: { "application/json": { schema: AuthorDetailResponse } },
@@ -141,6 +141,7 @@ authorsRoutes.openapi(listAuthors, async (c) => {
 
 authorsRoutes.openapi(getAuthor, async (c) => {
   const { id } = c.req.valid("param");
+  const { bookTitleLang } = c.req.valid("query");
 
   const author = await prisma.author.findUnique({
     where: { id },
@@ -164,6 +165,15 @@ authorsRoutes.openapi(getAuthor, async (c) => {
           id: true,
           titleArabic: true,
           titleLatin: true,
+          ...(bookTitleLang && bookTitleLang !== "none" && bookTitleLang !== "transliteration"
+            ? {
+                titleTranslations: {
+                  where: { language: bookTitleLang },
+                  select: { title: true },
+                  take: 1,
+                },
+              }
+            : {}),
         },
       },
     },
@@ -174,7 +184,17 @@ authorsRoutes.openapi(getAuthor, async (c) => {
   }
 
   return c.json({
-    author,
+    author: {
+      ...author,
+      books: author.books.map((b) => ({
+        id: b.id,
+        titleArabic: b.titleArabic,
+        titleLatin: b.titleLatin,
+        ...("titleTranslations" in b && Array.isArray(b.titleTranslations) && b.titleTranslations.length > 0
+          ? { titleTranslated: (b.titleTranslations as { title: string }[])[0].title }
+          : {}),
+      })),
+    },
     _sources: [...SOURCES.turath],
   }, 200);
 });
