@@ -7,7 +7,7 @@ import { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand } fr
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
 
-const AUDIO_DIR = "/Volumes/KIOXIA/quran-audio/everyayah/alafasy-128kbps";
+const AUDIO_DIR = process.env.AUDIO_DIR || "/Volumes/KIOXIA/quran-audio/everyayah/alafasy-128kbps";
 const BUCKET = "quran-audio";
 const PREFIX = "alafasy-128kbps";
 const CONCURRENCY = 20;
