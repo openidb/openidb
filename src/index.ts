@@ -52,8 +52,11 @@ app.use(
   })
 );
 
-// Response compression
-app.use("/api/*", compress());
+// Response compression (skip audio — MP3 is already compressed, and gzip breaks Content-Length)
+app.use("/api/*", async (c, next) => {
+  if (c.req.path.includes("/audio/")) return next();
+  return compress()(c, next);
+});
 
 // Request body size limits (before parsing/validation)
 app.use("/api/transcribe", bodyLimit({ maxSize: 26 * 1024 * 1024 })); // 26MB for audio upload

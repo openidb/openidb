@@ -175,6 +175,27 @@ services:
       api:
         condition: service_healthy
 
+  voice:
+    container_name: openidb-voice
+    build:
+      context: ../voice
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENIDB_URL: http://api:4000
+      NEXT_PUBLIC_OPENIDB_URL: ${SITE_URL:-https://openidb.org}
+      PORT: "3001"
+      HOSTNAME: "0.0.0.0"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres_data:
     external: true

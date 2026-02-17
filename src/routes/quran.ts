@@ -1,5 +1,7 @@
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { stat } from "fs/promises";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import s3 from "../s3";
 import { prisma } from "../db";
 import { generateQuranUrl, generateTafsirSourceUrl, generateTranslationSourceUrl, SOURCES } from "../utils/source-urls";
 import { audioFilePath } from "../utils/audio-storage";
@@ -450,6 +452,32 @@ quranRoutes.openapi(getAudio, async (c) => {
     slug = defaultReciter.slug;
   }
 
+  const filename = `${String(surah).padStart(3, "0")}${String(ayah).padStart(3, "0")}.mp3`;
+  const s3Key = `${slug}/${filename}`;
+
+  // Try rustfs first, fall back to local disk
+  try {
+    const obj = await s3.send(new GetObjectCommand({
+      Bucket: "quran-audio",
+      Key: s3Key,
+    }));
+
+    if (!obj.Body) throw new Error("Empty body");
+
+    const body = await obj.Body.transformToByteArray();
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Length": String(body.length),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=86400, immutable",
+      },
+    }) as unknown as ReturnType<typeof c.json>;
+  } catch {
+    // Fall back to local disk
+  }
+
   const filePath = audioFilePath(slug, surah, ayah);
 
   let fileStat;
@@ -460,29 +488,6 @@ quranRoutes.openapi(getAudio, async (c) => {
   }
 
   const file = Bun.file(filePath);
-  const rangeHeader = c.req.header("Range");
-
-  if (rangeHeader) {
-    const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-    if (match) {
-      const start = parseInt(match[1], 10);
-      const end = match[2] ? parseInt(match[2], 10) : fileStat.size - 1;
-      const chunkSize = end - start + 1;
-
-      return new Response(file.slice(start, end + 1), {
-        status: 206,
-        headers: {
-          "Content-Type": "audio/mpeg",
-          "Content-Length": String(chunkSize),
-          "Content-Range": `bytes ${start}-${end}/${fileStat.size}`,
-          "Accept-Ranges": "bytes",
-          "Cache-Control": "public, max-age=86400, immutable",
-        },
-      }) as unknown as ReturnType<typeof c.json>;
-    }
-  }
-
-  // Full file response
   return new Response(file, {
     status: 200,
     headers: {
