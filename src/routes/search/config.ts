@@ -54,3 +54,7 @@ export const FETCH_LIMIT_CAP = 100;
 
 // Default ayah similarity cutoff for semantic search
 export const DEFAULT_AYAH_SIMILARITY_CUTOFF = 0.28;
+
+// Hadith collections excluded from default search results
+// Suyuti's Jami al-Kabir has ~46K hadiths that flood results with duplicates of primary collections
+export const EXCLUDED_HADITH_COLLECTIONS = new Set(["suyuti"]);

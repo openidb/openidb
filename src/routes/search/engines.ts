@@ -352,22 +352,19 @@ export async function searchHadithsSemantic(
     const effectiveCutoff = getDynamicSimilarityThreshold(query, similarityCutoff);
     const queryEmbedding = precomputedEmbedding ?? await emConfig.generateEmbeddingFn(normalizedQuery);
 
-    const mustFilters: any[] = [];
+    const filter: any = {};
     if (collectionSlugs && collectionSlugs.length > 0) {
-      mustFilters.push({ key: "collectionSlug", match: { any: collectionSlugs } });
+      filter.must = [{ key: "collectionSlug", match: { any: collectionSlugs } }];
     }
 
     const searchResults = await qdrant.search(emConfig.hadithCollection, {
       vector: queryEmbedding,
       limit: limit,
       with_payload: {
-        include: ["collectionSlug", "collectionNameArabic", "collectionNameEnglish", "bookNumber", "bookNameArabic", "bookNameEnglish", "hadithNumber", "text", "textPlain", "chapterArabic", "chapterEnglish", "bookId", "isChainVariation"],
+        include: ["collectionSlug", "collectionNameArabic", "collectionNameEnglish", "bookNumber", "bookNameArabic", "bookNameEnglish", "hadithNumber", "text", "textPlain", "chapterArabic", "chapterEnglish", "bookId"],
       },
       score_threshold: effectiveCutoff,
-      filter: {
-        must: mustFilters.length > 0 ? mustFilters : undefined,
-        must_not: [{ key: "isChainVariation", match: { value: true } }],
-      },
+      filter: Object.keys(filter).length > 0 ? filter : undefined,
     });
 
     if (searchResults.length === 0) {

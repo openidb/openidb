@@ -5,7 +5,6 @@
  * Falls back to in-memory cache on any SQLite errors.
  */
 
-import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 
@@ -16,9 +15,9 @@ const DB_PATH = path.join(CACHE_DIR, "embeddings.db");
 // TTL for cached embeddings (7 days - embeddings don't change)
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-let db: Database.Database | null = null;
-let getStmt: Database.Statement | null = null;
-let setStmt: Database.Statement | null = null;
+let db: any = null;
+let getStmt: any = null;
+let setStmt: any = null;
 
 /**
  * Initialize SQLite database and create table if needed
@@ -26,7 +25,12 @@ let setStmt: Database.Statement | null = null;
 function initDb(): boolean {
   if (db) return true;
 
+  // better-sqlite3 native bindings not supported in Bun — skip persistent cache
+  if (typeof globalThis.Bun !== "undefined") return false;
+
   try {
+    const Database = require("better-sqlite3");
+
     // Ensure cache directory exists
     if (!fs.existsSync(CACHE_DIR)) {
       fs.mkdirSync(CACHE_DIR, { recursive: true });

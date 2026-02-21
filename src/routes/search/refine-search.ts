@@ -9,6 +9,7 @@ import { rerankUnifiedRefine } from "./rerankers";
 import { semanticSearch, searchAyahsSemantic, searchAyahsHybrid, searchHadithsSemantic, searchHadithsHybrid } from "./engines";
 import { expandQueryWithCacheInfo } from "./refine";
 import { getBookMetadataForReranking } from "./helpers";
+import { EXCLUDED_HADITH_COLLECTIONS } from "./config";
 import type { SearchParams } from "./params";
 import type {
   RerankerType,
@@ -176,7 +177,10 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
   const mergeTimer = startTimer();
   const mergedBooks = includeBooks ? mergeAndDeduplicateBooks(allResults.map(r => r.books)) : [];
   const mergedAyahs = includeQuran ? mergeAndDeduplicateAyahs(allResults.map(r => r.ayahs)) : [];
-  const mergedHadiths = includeHadith ? mergeAndDeduplicateHadiths(allResults.map(r => r.hadiths)) : [];
+  const mergedHadithsRaw = includeHadith ? mergeAndDeduplicateHadiths(allResults.map(r => r.hadiths)) : [];
+  const mergedHadiths = hadithCollections.length === 0
+    ? mergedHadithsRaw.filter(h => !EXCLUDED_HADITH_COLLECTIONS.has(h.collectionSlug))
+    : mergedHadithsRaw;
   _refineTiming.merge = mergeTimer();
 
   const afterMerge = { books: mergedBooks.length, ayahs: mergedAyahs.length, hadiths: mergedHadiths.length };

@@ -82,7 +82,7 @@ const getHadith = createRoute({
 
 // --- Helpers ---
 
-// Extra hadith fields to include in select queries (hadithunlocked.com + grading metadata)
+// Extra hadith fields to include in select queries (hadithunlocked.com + grading metadata + source page refs)
 const EXTRA_HADITH_FIELDS_SELECT = {
   source: true,
   numberInCollection: true,
@@ -93,6 +93,13 @@ const EXTRA_HADITH_FIELDS_SELECT = {
   gradeExplanation: true,
   graderName: true,
   sourceBookName: true,
+  sourceBookId: true,
+  sourcePageStart: true,
+  sourcePageEnd: true,
+  sourceVolumeNumber: true,
+  sourcePrintedPage: true,
+  kitabArabic: true,
+  footnotes: true,
 } as const;
 
 // Sunnah.com collection slugs
@@ -122,7 +129,7 @@ function formatHadithForList(h: any, slug: string, bookNumber: number) {
     contentHash: h.contentHash,
     chapterArabic: h.chapterArabic,
     chapterEnglish: h.chapterEnglish,
-    sourceUrl: generateHadithSourceUrl(slug, h.hadithNumber, bookNumber, h.numberInCollection),
+    sourceUrl: generateHadithSourceUrl(slug, h.hadithNumber, bookNumber, h.numberInCollection, h.sourceBookId, h.sourcePageStart),
     source: h.source ?? null,
     isnad: h.isnad ?? null,
     matn: h.matn ?? null,
@@ -131,6 +138,13 @@ function formatHadithForList(h: any, slug: string, bookNumber: number) {
     gradeExplanation: h.gradeExplanation ?? null,
     graderName: h.graderName ?? null,
     sourceBookName: h.sourceBookName ?? null,
+    kitabArabic: h.kitabArabic ?? null,
+    footnotes: h.footnotes ?? null,
+    sourceBookId: h.sourceBookId ?? null,
+    sourcePageStart: h.sourcePageStart ?? null,
+    sourcePageEnd: h.sourcePageEnd ?? null,
+    sourceVolumeNumber: h.sourceVolumeNumber ?? null,
+    sourcePrintedPage: h.sourcePrintedPage ?? null,
   };
 }
 
@@ -283,7 +297,7 @@ hadithRoutes.openapi(getHadith, async (c) => {
   return c.json({
     hadith: {
       ...hadith,
-      sourceUrl: generateHadithSourceUrl(slug, hadith.hadithNumber, hadith.book.bookNumber, hadith.numberInCollection),
+      sourceUrl: generateHadithSourceUrl(slug, hadith.hadithNumber, hadith.book.bookNumber, hadith.numberInCollection, hadith.sourceBookId, hadith.sourcePageStart),
     },
     _sources: getSourcesForSlug(slug),
   }, 200);

@@ -16,4 +16,5 @@ pipelines/import/KhorsiCorpus.sql*
 pipelines/knowledge-graph/data/
 pipelines/knowledge-graph/data-backup/
 pipelines/import/hadith-unlocked-cache/
+pipelines/import/bukhari-pages-cache/
 tools/

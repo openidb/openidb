@@ -595,10 +595,13 @@ function getHadithTextForEmbedding(
   slug: string,
   textPlain: string,
   chapterArabic: string | null,
-  translationText: string | null
+  bookNameArabic?: string | null,
 ): string {
-  // Build metadata prefix
+  // Build metadata prefix: collection، kitab، bab:
   const metadataParts = [collectionNameArabic];
+  if (bookNameArabic) {
+    metadataParts.push(bookNameArabic);
+  }
   if (chapterArabic) {
     metadataParts.push(chapterArabic);
   }
@@ -610,13 +613,7 @@ function getHadithTextForEmbedding(
     : textPlain;
 
   const normalized = normalizeArabicText(arabicText);
-  const parts = [metadata, normalized];
-
-  if (translationText) {
-    parts.push(` ||| ${translationText}`);
-  }
-
-  return parts.join("\n");
+  return `${metadata}\n${normalized}`;
 }
 
 /**
@@ -628,9 +625,9 @@ async function processHadithBatch(
     hadithNumber: string;
     textArabic: string;
     textPlain: string;
+    matn: string | null;
     chapterArabic: string | null;
     chapterEnglish: string | null;
-    translationText: string | null;
     book: {
       bookNumber: number;
       nameArabic: string;
@@ -644,13 +641,17 @@ async function processHadithBatch(
   }>
 ): Promise<number> {
   // Prepare texts for embedding with metadata + Arabic + translation
+  // Use matn (body text without isnad) when available for better semantic matching
   const texts = hadiths.map((hadith) => {
+    const embeddingText = hadith.matn
+      ? normalizeArabicText(hadith.matn)
+      : hadith.textPlain;
     const text = getHadithTextForEmbedding(
       hadith.book.collection.nameArabic,
       hadith.book.collection.slug,
-      hadith.textPlain,
+      embeddingText,
       hadith.chapterArabic,
-      hadith.translationText
+      hadith.book.nameArabic,
     );
     return truncateForEmbedding(text);
   });
@@ -730,14 +731,9 @@ async function generateHadithEmbeddings(): Promise<void> {
     return;
   }
 
-  // Hadith embeddings use metadata + Arabic text only (no translations)
-  const translationMap = new Map<string, string>();
-
   let processed = 0;
   let skipped = 0;
   let failed = 0;
-  let withTranslation = 0;
-  let withoutTranslation = 0;
   let offset = 0;
 
   while (offset < totalHadiths) {
@@ -753,6 +749,7 @@ async function generateHadithEmbeddings(): Promise<void> {
         hadithNumber: true,
         textArabic: true,
         textPlain: true,
+        matn: true,
         chapterArabic: true,
         chapterEnglish: true,
         book: {
@@ -774,16 +771,8 @@ async function generateHadithEmbeddings(): Promise<void> {
 
     if (hadiths.length === 0) break;
 
-    // Attach translations to hadiths
-    const hadithsWithTranslations = hadiths.map((hadith) => {
-      const translation = translationMap.get(`${hadith.bookId}:${hadith.hadithNumber}`) || null;
-      if (translation) withTranslation++;
-      else withoutTranslation++;
-      return { ...hadith, translationText: translation };
-    });
-
     // Filter out already processed hadiths
-    const hadithsToProcess = hadithsWithTranslations.filter((hadith) => {
+    const hadithsToProcess = hadiths.filter((hadith) => {
       const pointId = generateHadithPointId(hadith.book.collection.slug, hadith.hadithNumber);
       if (existingIds.has(pointId)) {
         skipped++;
@@ -816,8 +805,6 @@ async function generateHadithEmbeddings(): Promise<void> {
   console.log("=".repeat(60));
   console.log(`Processed:           ${processed}`);
   console.log(`Skipped:             ${skipped}`);
-  console.log(`With translation:    ${withTranslation}`);
-  console.log(`Without translation: ${withoutTranslation}`);
   console.log(`Failed:              ${failed}`);
   console.log("=".repeat(60));
 

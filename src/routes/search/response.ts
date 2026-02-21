@@ -372,37 +372,62 @@ export async function buildDebugStats(
 }
 
 /**
- * Resolve numberInCollection for hadithunlocked hadiths and fix their sourceUrl.
- * Hadiths from hadithunlocked.com store hId as hadithNumber but need `num` (numberInCollection)
- * for correct deep links.
+ * Resolve source URLs for hadiths that need DB lookups:
+ * - hadithunlocked.com hadiths need numberInCollection for deep links
+ * - hadiths with sourceBookId/sourcePageStart get Turath page URLs
  */
 export async function resolveHadithSourceUrls(hadiths: HadithResult[]): Promise<HadithResult[]> {
-  // Find hadithunlocked hadiths that need numberInCollection lookup
-  const needsLookup = hadiths.filter(h => HADITHUNLOCKED_SLUGS.has(h.collectionSlug));
-  if (needsLookup.length === 0) return hadiths;
+  if (hadiths.length === 0) return hadiths;
 
-  // Batch lookup numberInCollection from DB
-  const lookupKeys = needsLookup.map(h => ({ bookId: h.bookId, hadithNumber: h.hadithNumber }));
+  // Look up by collectionSlug + hadithNumber (stable across book restructuring)
+  // since Qdrant payloads may have stale bookId values after book re-imports
+  const slugNumbers = [...new Set(hadiths.map(h => `${h.collectionSlug}|${h.hadithNumber}`))];
+  const slugGroups = new Map<string, string[]>();
+  for (const key of slugNumbers) {
+    const [slug, num] = key.split("|");
+    if (!slugGroups.has(slug)) slugGroups.set(slug, []);
+    slugGroups.get(slug)!.push(num);
+  }
 
   const rows = await prisma.hadith.findMany({
     where: {
-      OR: lookupKeys.map(k => ({ bookId: k.bookId, hadithNumber: k.hadithNumber })),
+      OR: [...slugGroups.entries()].map(([slug, nums]) => ({
+        book: { collection: { slug } },
+        hadithNumber: { in: nums },
+      })),
     },
-    select: { bookId: true, hadithNumber: true, numberInCollection: true },
+    select: {
+      hadithNumber: true,
+      numberInCollection: true,
+      sourceBookId: true,
+      sourcePageStart: true,
+      bookId: true,
+      book: { select: { collection: { select: { slug: true } } } },
+    },
   });
 
-  const numMap = new Map<string, string | null>();
+  const rowMap = new Map<string, { bookId: number; numberInCollection: string | null; sourceBookId: string | null; sourcePageStart: number | null }>();
   for (const row of rows) {
-    numMap.set(`${row.bookId}-${row.hadithNumber}`, row.numberInCollection);
+    rowMap.set(`${row.book.collection.slug}-${row.hadithNumber}`, {
+      bookId: row.bookId,
+      numberInCollection: row.numberInCollection,
+      sourceBookId: row.sourceBookId,
+      sourcePageStart: row.sourcePageStart,
+    });
   }
 
   return hadiths.map(h => {
-    if (!HADITHUNLOCKED_SLUGS.has(h.collectionSlug)) return h;
-    const numInCol = numMap.get(`${h.bookId}-${h.hadithNumber}`);
+    const extra = rowMap.get(`${h.collectionSlug}-${h.hadithNumber}`);
+    if (!extra) return h;
+
     return {
       ...h,
-      numberInCollection: numInCol ?? undefined,
-      sourceUrl: generateHadithSourceUrl(h.collectionSlug, h.hadithNumber, h.bookNumber, numInCol),
+      bookId: extra.bookId,
+      numberInCollection: extra.numberInCollection ?? undefined,
+      sourceUrl: generateHadithSourceUrl(
+        h.collectionSlug, h.hadithNumber, h.bookNumber,
+        extra.numberInCollection, extra.sourceBookId, extra.sourcePageStart,
+      ),
     };
   });
 }

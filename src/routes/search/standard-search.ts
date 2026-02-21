@@ -8,7 +8,7 @@ import {
   keywordSearchHadithsES,
   keywordSearchAyahsES,
 } from "../../search/elasticsearch-search";
-import { STANDARD_FETCH_LIMIT, DEFAULT_AYAH_LIMIT, DEFAULT_HADITH_LIMIT } from "./config";
+import { STANDARD_FETCH_LIMIT, DEFAULT_AYAH_LIMIT, DEFAULT_HADITH_LIMIT, EXCLUDED_HADITH_COLLECTIONS } from "./config";
 import { shouldSkipSemanticSearch, getSearchStrategy } from "./query-utils";
 import { mergeWithRRF, mergeWithRRFGeneric } from "./fusion";
 import { semanticSearch, searchAyahsSemantic, searchHadithsSemantic } from "./engines";
@@ -178,10 +178,15 @@ export async function executeStandardSearch(params: SearchParams): Promise<Stand
     normalizeKeyword: (items) => items.map(a => ({ ...a, score: normalizeBM25Score(a.bm25Score ?? a.score ?? 0) })),
   });
 
+  // Filter excluded collections unless user explicitly requested specific ones
+  const shouldExclude = hadithCollections.length === 0;
+  const filterExcluded = <T extends { collectionSlug: string }>(items: T[]) =>
+    shouldExclude ? items.filter(h => !EXCLUDED_HADITH_COLLECTIONS.has(h.collectionSlug)) : items;
+
   const hadiths = mergeByMode({
     include: !bookId && includeHadith, mode, limit: hadithLimit,
-    keywordResults: keywordHadithsResults, semanticResults: semanticHadithsResults,
-    merge: () => mergeWithRRFGeneric(semanticHadithsResults, keywordHadithsResults, (h) => `${h.collectionSlug}-${h.hadithNumber}`, query),
+    keywordResults: filterExcluded(keywordHadithsResults), semanticResults: filterExcluded(semanticHadithsResults),
+    merge: () => filterExcluded(mergeWithRRFGeneric(semanticHadithsResults, keywordHadithsResults, (h) => `${h.collectionSlug}-${h.hadithNumber}`, query)),
     normalizeKeyword: (items) => items.map(h => ({ ...h, score: normalizeBM25Score(h.bm25Score ?? h.score ?? 0) })),
   });
 

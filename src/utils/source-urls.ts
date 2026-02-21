@@ -82,14 +82,21 @@ function generateHadithUnlockedUrl(
 
 /**
  * Generate the correct source URL for any hadith, picking the right site based on collection slug.
+ * Prefers Turath book page URL when source page info is available.
  * For hadithunlocked collections, numberInCollection is required for deep links.
  */
 export function generateHadithSourceUrl(
   collectionSlug: string,
   hadithNumber: string,
   bookNumber: number,
-  numberInCollection?: string | null
+  numberInCollection?: string | null,
+  sourceBookId?: string | null,
+  sourcePageStart?: number | null,
 ): string {
+  // Prefer Turath page URL when source book page is available
+  if (sourceBookId && sourcePageStart) {
+    return generatePageReferenceUrl(sourceBookId, sourcePageStart);
+  }
   if (collectionSlug in SLUG_TO_HADITHUNLOCKED_ALIAS) {
     return generateHadithUnlockedUrl(collectionSlug, numberInCollection);
   }
@@ -111,10 +118,10 @@ export function generateBookReferenceUrl(bookId: string): string {
 }
 
 /**
- * Generate a turath.io URL for a specific page in a book.
+ * Generate an internal reader URL for a specific page in a book.
  */
 export function generatePageReferenceUrl(bookId: string, pageNumber: number): string {
-  return `https://app.turath.io/book/${bookId}#p-${pageNumber}`;
+  return `/reader/${bookId}?pn=${pageNumber}`;
 }
 
 /**

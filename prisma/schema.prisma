@@ -441,6 +441,15 @@ model Hadith {
   matn      String? @db.Text // Hadith body text (Arabic, with tashkeel)
   gradeText String? @map("grade_text") // Full grade description (English, e.g. "Sound - agreed upon")
 
+  // Source book page references (e.g., Sultaniyya edition for Bukhari)
+  sourceBookId        String?  @map("source_book_id")       // Book ID in books table (e.g., "1681")
+  sourcePageStart     Int?     @map("source_page_start")    // First page where hadith appears
+  sourcePageEnd       Int?     @map("source_page_end")      // Last page where hadith appears
+  sourceVolumeNumber  Int?     @map("source_volume_number") // Volume number in printed edition
+  sourcePrintedPage   Int?     @map("source_printed_page")  // Printed page number in edition
+  kitabArabic         String?  @map("kitab_arabic")         // كتاب heading (higher than باب)
+  footnotes           String?  @map("footnotes") @db.Text   // Scholarly footnotes from edition
+
   // Grading & metadata
   grade             String?                                // صحيح، حسن، ضعيف
   gradeExplanation  String?  @map("grade_explanation") @db.Text  // تفصيل الحكم
@@ -451,6 +460,7 @@ model Hadith {
 
   @@unique([bookId, hadithNumber])
   @@index([bookId])
+  @@index([sourceBookId])
   @@map("hadiths")
 }
 
