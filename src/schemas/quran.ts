@@ -238,3 +238,40 @@ export const SegmentsResponse = z.object({
   surah: z.number(),
   ayahs: z.record(z.string(), AyahSegments),
 }).openapi("SegmentsResponse");
+
+// --- Mushaf Page ---
+
+export const MushafPageParam = z.object({
+  page: z.coerce.number().int().min(1).max(604).openapi({ example: 1, description: "Mushaf page number (1-604)" }),
+});
+
+export const MushafWordSchema = z.object({
+  position: z.number(),
+  charType: z.string(),
+  surahNumber: z.number(),
+  ayahNumber: z.number(),
+  wordPosition: z.number(),
+  text: z.string(),
+  glyph: z.string(),
+});
+
+export const MushafLineSchema = z.object({
+  lineNumber: z.number(),
+  lineType: z.string(),
+  words: z.array(MushafWordSchema),
+});
+
+export const MushafSurahInfo = z.object({
+  number: z.number(),
+  nameArabic: z.string(),
+  nameEnglish: z.string(),
+});
+
+export const MushafPageResponse = z.object({
+  pageNumber: z.number(),
+  totalPages: z.number(),
+  juzNumber: z.number().nullable(),
+  hizbNumber: z.number().nullable(),
+  surahs: z.array(MushafSurahInfo),
+  lines: z.array(MushafLineSchema),
+}).openapi("MushafPage");

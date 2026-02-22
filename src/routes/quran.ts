@@ -16,6 +16,7 @@ import {
   WordTranslationPathParam, WordTranslationQuery, WordTranslationResponse,
   ReciterListQuery, ReciterListResponse, AudioPathParam, AudioQuery,
   SegmentsQuery, SegmentsResponse,
+  MushafPageParam, MushafPageResponse,
 } from "../schemas/quran";
 
 // --- Route definitions ---
@@ -193,6 +194,24 @@ const getSegments = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponse } },
       description: "Segments not available for this reciter",
+    },
+  },
+});
+
+const getMushafPage = createRoute({
+  method: "get",
+  path: "/mushaf/{page}",
+  tags: ["Quran"],
+  summary: "Get mushaf page layout data",
+  request: { params: MushafPageParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: MushafPageResponse } },
+      description: "Mushaf page with line/word layout",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Page not found",
     },
   },
 });
@@ -554,4 +573,98 @@ quranRoutes.openapi(getSegments, async (c) => {
 
   c.header("Cache-Control", "public, max-age=86400");
   return c.json({ reciter, surah, ayahs }, 200);
+});
+
+// --- Mushaf Page ---
+
+quranRoutes.openapi(getMushafPage, async (c) => {
+  const { page } = c.req.valid("param");
+
+  const cacheKey = `mushaf:${page}`;
+  let cached = quranCache.get(cacheKey);
+  if (cached) {
+    c.header("Cache-Control", "public, max-age=86400, immutable");
+    return c.json(cached as any, 200);
+  }
+
+  const words = await prisma.mushafWord.findMany({
+    where: { pageNumber: page },
+    orderBy: [{ lineNumber: "asc" }, { positionInLine: "asc" }],
+  });
+
+  if (words.length === 0) {
+    return c.json({ error: "Page not found" }, 404);
+  }
+
+  // Group words by line
+  const lineMap = new Map<number, typeof words>();
+  for (const w of words) {
+    if (!lineMap.has(w.lineNumber)) lineMap.set(w.lineNumber, []);
+    lineMap.get(w.lineNumber)!.push(w);
+  }
+
+  // Build lines using lineType stored in the database
+  const lines = Array.from(lineMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([lineNumber, lineWords]) => {
+      // Use lineType from the first word on this line (all words on a line share the same type)
+      const lineType = lineWords[0].lineType;
+
+      return {
+        lineNumber,
+        lineType,
+        words: lineWords.map((w) => ({
+          position: w.positionInLine,
+          charType: w.charTypeName,
+          surahNumber: w.surahNumber,
+          ayahNumber: w.ayahNumber,
+          wordPosition: w.wordPosition,
+          text: w.textUthmani,
+          glyph: w.glyphCode,
+        })),
+      };
+    });
+
+  // Collect unique surahs on this page
+  const surahNumbers = [...new Set(words.map((w) => w.surahNumber))].sort((a, b) => a - b);
+  const surahs = await prisma.surah.findMany({
+    where: { number: { in: surahNumbers } },
+    select: { number: true, nameArabic: true, nameEnglish: true },
+    orderBy: { number: "asc" },
+  });
+
+  // Get juz/hizb from the first ayah on the page
+  const firstWord = words.find((w) => w.charTypeName === "word" || w.charTypeName === "end");
+  let juzNumber: number | null = null;
+  let hizbNumber: number | null = null;
+  if (firstWord) {
+    const ayah = await prisma.ayah.findFirst({
+      where: {
+        surah: { number: firstWord.surahNumber },
+        ayahNumber: firstWord.ayahNumber,
+      },
+      select: { juzNumber: true },
+    });
+    if (ayah) {
+      juzNumber = ayah.juzNumber;
+      hizbNumber = Math.ceil(juzNumber * 2 * page / 604);
+    }
+  }
+
+  const response = {
+    pageNumber: page,
+    totalPages: 604,
+    juzNumber,
+    hizbNumber,
+    surahs: surahs.map((s) => ({
+      number: s.number,
+      nameArabic: s.nameArabic,
+      nameEnglish: s.nameEnglish,
+    })),
+    lines,
+  };
+
+  quranCache.set(cacheKey, response);
+  c.header("Cache-Control", "public, max-age=86400, immutable");
+  return c.json(response, 200);
 });

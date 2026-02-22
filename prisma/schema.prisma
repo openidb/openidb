@@ -393,6 +393,25 @@ model WordTranslation {
   @@map("word_translations")
 }
 
+model MushafWord {
+  id              Int    @id @default(autoincrement())
+  pageNumber      Int    @map("page_number")
+  lineNumber      Int    @map("line_number")
+  lineType        String @map("line_type") @default("text") // "surah_name", "bismillah", "center", "text"
+  positionInLine  Int    @map("position_in_line")
+  charTypeName    String @map("char_type_name")    // "word", "end"
+  surahNumber     Int    @map("surah_number")
+  ayahNumber      Int    @map("ayah_number")
+  wordPosition    Int    @map("word_position")     // position within the ayah
+  textUthmani     String @map("text_uthmani")      // unicode text
+  glyphCode       String @map("glyph_code")        // V4 glyph character(s)
+
+  @@unique([pageNumber, lineNumber, positionInLine])
+  @@index([pageNumber])
+  @@index([surahNumber, ayahNumber])
+  @@map("mushaf_words")
+}
+
 // ============================================================================
 // HADITH - Sunnah.com integration
 // ============================================================================
