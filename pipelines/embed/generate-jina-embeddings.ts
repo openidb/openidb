@@ -24,7 +24,7 @@ import {
 import { JINA_EMBEDDING_DIMENSIONS } from "../../src/constants";
 import { generateJinaEmbeddings } from "../../src/embeddings/jina";
 import { normalizeArabicText, truncateForEmbedding } from "../../src/embeddings/gemini";
-import { generateSunnahUrl } from "../../src/utils/source-urls";
+import { generateHadithSourceUrl } from "../../src/utils/source-urls";
 import crypto from "crypto";
 
 const forceFlag = process.argv.includes("--force");
@@ -316,6 +316,9 @@ async function generateHadithEmbeddings(): Promise<void> {
         textPlain: true,
         chapterArabic: true,
         chapterEnglish: true,
+        sourceBookId: true,
+        sourcePageStart: true,
+        numberInCollection: true,
         book: {
           select: {
             bookNumber: true,
@@ -392,7 +395,7 @@ async function generateHadithEmbeddings(): Promise<void> {
             textPlain: enrichedTextPlain,
             chapterArabic: hadith.chapterArabic,
             chapterEnglish: hadith.chapterEnglish,
-            sunnahUrl: generateSunnahUrl(slug, hadith.hadithNumber, hadith.book.bookNumber),
+            sourceUrl: generateHadithSourceUrl(slug, hadith.hadithNumber, hadith.book.bookNumber, hadith.numberInCollection, hadith.sourceBookId, hadith.sourcePageStart),
             embeddingTechnique: "metadata",
           },
         };

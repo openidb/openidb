@@ -107,6 +107,7 @@ export const BookDetailResponse = z.object({
     }).nullable(),
     editor: z.object({ name: z.string() }).nullable(),
     keywords: z.array(z.object({ keyword: z.string() })),
+    volumeStartPages: z.record(z.string(), z.number()).optional(),
   }),
   _sources: z.array(SourceSchema),
 }).openapi("BookDetail");

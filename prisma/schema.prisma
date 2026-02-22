@@ -433,10 +433,10 @@ model Hadith {
   chapterArabic    String? @map("chapter_arabic")
   chapterEnglish   String? @map("chapter_english")
   isChainVariation    Boolean @default(false) @map("is_chain_variation") // True for hadiths that are only chain variations (no matn)
-  source              String?                                             // Data provenance: "sunnah.com", "hadithunlocked.com"
-  numberInCollection  String? @map("number_in_collection") // Display number on source site (e.g. "6204a-2" for hadithunlocked.com)
+  source              String?                                             // Data provenance: "turath"
+  numberInCollection  String? @map("number_in_collection") // Display number in collection (e.g. "6204a-2")
 
-  // Isnad/Matn separation (from hadithunlocked.com)
+  // Isnad/Matn separation
   isnad     String? @db.Text // Chain of narrators (Arabic, with tashkeel)
   matn      String? @db.Text // Hadith body text (Arabic, with tashkeel)
   gradeText String? @map("grade_text") // Full grade description (English, e.g. "Sound - agreed upon")
@@ -471,8 +471,16 @@ model HadithTranslation {
   language     String // "en" for now, expandable later
   text         String  @db.Text
   contentHash  String? @map("content_hash")
-  source       String? // "sunnah.com", "hadithunlocked.com", "llm"
+  source       String? // "turath", "llm"
   model        String? // "gemini-flash" etc, only for source="llm"
+
+  // Structured translation fields (populated by LLM)
+  isnadTranslation            String? @map("isnad_translation") @db.Text
+  matnTranslation             String? @map("matn_translation") @db.Text
+  footnotesTranslation        String? @map("footnotes_translation") @db.Text
+  kitabTranslation            String? @map("kitab_translation")
+  chapterTranslation          String? @map("chapter_translation")
+  gradeExplanationTranslation String? @map("grade_explanation_translation") @db.Text
 
   @@unique([bookId, hadithNumber, language])
   @@index([bookId, hadithNumber])

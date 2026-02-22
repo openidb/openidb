@@ -231,7 +231,7 @@ searchRoutes.openapi(search, async (c) => {
     const _sources = [
       ...(params.includeBooks ? SOURCES.turath : []),
       ...(params.includeQuran ? SOURCES.quranCloud : []),
-      ...(params.includeHadith ? [...SOURCES.sunnah, ...SOURCES.hadithUnlocked] : []),
+      ...(params.includeHadith ? SOURCES.turath : []),
     ];
 
     const responseBody = {

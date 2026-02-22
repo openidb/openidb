@@ -1,6 +1,6 @@
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { prisma } from "../db";
-import { generateHadithSourceUrl, HADITHUNLOCKED_SLUGS, SOURCES } from "../utils/source-urls";
+import { generateHadithSourceUrl, SOURCES } from "../utils/source-urls";
 import { ErrorResponse } from "../schemas/common";
 import {
   CollectionSlugParam, CollectionBookParam, HadithNumberParam,
@@ -82,7 +82,7 @@ const getHadith = createRoute({
 
 // --- Helpers ---
 
-// Extra hadith fields to include in select queries (hadithunlocked.com + grading metadata + source page refs)
+// Extra hadith fields to include in select queries (grading metadata + source page refs)
 const EXTRA_HADITH_FIELDS_SELECT = {
   source: true,
   numberInCollection: true,
@@ -101,26 +101,6 @@ const EXTRA_HADITH_FIELDS_SELECT = {
   kitabArabic: true,
   footnotes: true,
 } as const;
-
-// Sunnah.com collection slugs
-const SUNNAH_COM_SLUGS = new Set([
-  "bukhari", "muslim", "abudawud", "tirmidhi", "nasai", "ibnmajah",
-  "ahmad", "malik", "darimi", "riyadussalihin", "adab", "shamail",
-  "mishkat", "bulugh", "nawawi40", "qudsi40", "hisn",
-]);
-
-// Alias for local use
-const HADITH_UNLOCKED_SLUGS = HADITHUNLOCKED_SLUGS;
-
-function isFromSunnah(slug: string): boolean {
-  return SUNNAH_COM_SLUGS.has(slug);
-}
-
-function getSourcesForSlug(slug: string) {
-  if (isFromSunnah(slug)) return [...SOURCES.sunnah];
-  if (HADITH_UNLOCKED_SLUGS.has(slug)) return [...SOURCES.hadithUnlocked];
-  return [...SOURCES.sunnah, ...SOURCES.hadithUnlocked];
-}
 
 function formatHadithForList(h: any, slug: string, bookNumber: number) {
   return {
@@ -171,7 +151,7 @@ hadithRoutes.openapi(listCollections, async (c) => {
       nameArabic: col.nameArabic,
       booksCount: col._count.books,
     })),
-    _sources: [...SOURCES.sunnah, ...SOURCES.hadithUnlocked],
+    _sources: [...SOURCES.turath],
   }, 200);
 });
 
@@ -212,7 +192,7 @@ hadithRoutes.openapi(getCollection, async (c) => {
         hadithCount: book._count.hadiths,
       })),
     },
-    _sources: getSourcesForSlug(slug),
+    _sources: [...SOURCES.turath],
   }, 200);
 });
 
@@ -259,7 +239,7 @@ hadithRoutes.openapi(getHadithBook, async (c) => {
     total,
     limit,
     offset,
-    _sources: getSourcesForSlug(slug),
+    _sources: [...SOURCES.turath],
   }, 200);
 });
 
@@ -299,6 +279,6 @@ hadithRoutes.openapi(getHadith, async (c) => {
       ...hadith,
       sourceUrl: generateHadithSourceUrl(slug, hadith.hadithNumber, hadith.book.bookNumber, hadith.numberInCollection, hadith.sourceBookId, hadith.sourcePageStart),
     },
-    _sources: getSourcesForSlug(slug),
+    _sources: [...SOURCES.turath],
   }, 200);
 });

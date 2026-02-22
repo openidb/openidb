@@ -39,7 +39,7 @@ import {
   truncateForEmbedding,
 } from "../../src/embeddings";
 import crypto from "crypto";
-import { generateSunnahUrl } from "../../src/utils/source-urls";
+import { generateHadithSourceUrl } from "../../src/utils/source-urls";
 
 // Parse command line arguments
 const forceFlag = process.argv.includes("--force");
@@ -51,6 +51,10 @@ const batchSizeArg = process.argv.find((arg) => arg.startsWith("--batch-size="))
 const BATCH_SIZE = batchSizeArg
   ? parseInt(batchSizeArg.split("=")[1], 10)
   : 50;
+
+// Parse concurrency (number of parallel embedding batches)
+const concurrencyArg = process.argv.find((arg) => arg.startsWith("--concurrency="));
+const CONCURRENCY = concurrencyArg ? parseInt(concurrencyArg.split("=")[1], 10) : 1;
 
 // Parse --hadith-collections filter (comma-separated list of collection slugs)
 const hadithCollectionsArg = process.argv.find((arg) => arg.startsWith("--hadith-collections="));
@@ -625,6 +629,7 @@ async function processHadithBatch(
     hadithNumber: string;
     textArabic: string;
     textPlain: string;
+    isnad: string | null;
     matn: string | null;
     chapterArabic: string | null;
     chapterEnglish: string | null;
@@ -640,16 +645,12 @@ async function processHadithBatch(
     };
   }>
 ): Promise<number> {
-  // Prepare texts for embedding with metadata + Arabic + translation
-  // Use matn (body text without isnad) when available for better semantic matching
+  // Prepare texts for embedding with metadata + full Arabic text (isnad + matn)
   const texts = hadiths.map((hadith) => {
-    const embeddingText = hadith.matn
-      ? normalizeArabicText(hadith.matn)
-      : hadith.textPlain;
     const text = getHadithTextForEmbedding(
       hadith.book.collection.nameArabic,
       hadith.book.collection.slug,
-      embeddingText,
+      hadith.textPlain,
       hadith.chapterArabic,
       hadith.book.nameArabic,
     );
@@ -683,7 +684,7 @@ async function processHadithBatch(
         textPlain: enrichedTextPlain,
         chapterArabic: hadith.chapterArabic,
         chapterEnglish: hadith.chapterEnglish,
-        sunnahUrl: generateSunnahUrl(slug, hadith.hadithNumber, hadith.book.bookNumber),
+        sourceUrl: generateHadithSourceUrl(slug, hadith.hadithNumber, hadith.book.bookNumber, hadith.numberInCollection, hadith.sourceBookId, hadith.sourcePageStart),
         embeddingTechnique: "metadata-translation",
       },
     };
@@ -736,12 +737,15 @@ async function generateHadithEmbeddings(): Promise<void> {
   let failed = 0;
   let offset = 0;
 
+  console.log(`Concurrency: ${CONCURRENCY}\n`);
+
   while (offset < totalHadiths) {
-    // Fetch batch of hadiths with book and collection info
+    // Fetch a larger chunk to split into parallel batches
+    const FETCH_SIZE = BATCH_SIZE * Math.max(CONCURRENCY, 1) * 2;
     const hadiths = await prisma.hadith.findMany({
       where: whereClause,
       skip: offset,
-      take: BATCH_SIZE,
+      take: FETCH_SIZE,
       orderBy: [{ bookId: "asc" }, { hadithNumber: "asc" }],
       select: {
         id: true,
@@ -749,9 +753,13 @@ async function generateHadithEmbeddings(): Promise<void> {
         hadithNumber: true,
         textArabic: true,
         textPlain: true,
+        isnad: true,
         matn: true,
         chapterArabic: true,
         chapterEnglish: true,
+        sourceBookId: true,
+        sourcePageStart: true,
+        numberInCollection: true,
         book: {
           select: {
             bookNumber: true,
@@ -781,23 +789,34 @@ async function generateHadithEmbeddings(): Promise<void> {
       return true;
     });
 
-    if (hadithsToProcess.length > 0) {
-      try {
-        const count = await processHadithBatch(hadithsToProcess);
-        processed += count;
-        console.log(
-          `Processed ${processed}/${totalHadiths} hadiths (skipped: ${skipped}, failed: ${failed})`
-        );
-      } catch (error) {
-        console.error(`Batch failed:`, error);
-        failed += hadithsToProcess.length;
+    // Split into BATCH_SIZE chunks for parallel processing
+    const batches: (typeof hadithsToProcess)[] = [];
+    for (let i = 0; i < hadithsToProcess.length; i += BATCH_SIZE) {
+      batches.push(hadithsToProcess.slice(i, i + BATCH_SIZE));
+    }
+
+    // Process batches with concurrency limit
+    for (let i = 0; i < batches.length; i += CONCURRENCY) {
+      const parallelBatches = batches.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        parallelBatches.map((batch) => processHadithBatch(batch))
+      );
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          processed += result.value;
+        } else {
+          console.error("Batch failed:", result.reason);
+          failed += BATCH_SIZE;
+        }
       }
+
+      console.log(
+        `Processed ${processed}/${totalHadiths} hadiths (skipped: ${skipped}, failed: ${failed})`
+      );
     }
 
     offset += hadiths.length;
-
-    // Rate limiting: pause briefly between batches
-    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
   console.log("\n" + "=".repeat(60));

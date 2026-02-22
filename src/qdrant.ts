@@ -39,11 +39,11 @@ export const QDRANT_QURAN_COLLECTION =
 
 // Collection name for Hadith
 export const QDRANT_HADITH_COLLECTION =
-  process.env.QDRANT_HADITH_COLLECTION || "sunnah_hadiths";
+  process.env.QDRANT_HADITH_COLLECTION || "hadiths";
 
 // Jina v3 collections (1024d, separate from Gemini 3072d collections)
 export const QDRANT_QURAN_JINA_COLLECTION = "quran_ayahs_jina";
-export const QDRANT_HADITH_JINA_COLLECTION = "sunnah_hadiths_jina";
+export const QDRANT_HADITH_JINA_COLLECTION = "hadiths_jina";
 export const QDRANT_PAGES_JINA_COLLECTION = "arabic_texts_pages_jina";
 
 // Aliases for backwards compatibility with scripts

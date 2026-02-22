@@ -40,7 +40,11 @@ export async function fetchAndMergeTranslations(
             language: hadithTranslation,
             OR: hadiths.map((h) => ({ bookId: h.bookId, hadithNumber: h.hadithNumber })),
           },
-          select: { bookId: true, hadithNumber: true, text: true, source: true },
+          select: {
+            bookId: true, hadithNumber: true, text: true, source: true,
+            isnadTranslation: true, matnTranslation: true, footnotesTranslation: true,
+            kitabTranslation: true, chapterTranslation: true, gradeExplanationTranslation: true,
+          },
         })
       : Promise.resolve([]),
     (bookContentTranslation !== "none" && rankedResults.length > 0)
@@ -101,7 +105,15 @@ export async function fetchAndMergeTranslations(
     const hadithTranslationMap = new Map(
       hadithTranslationsRaw.map((t) => [
         `${t.bookId}-${t.hadithNumber}`,
-        { text: t.text, source: t.source },
+        {
+          text: t.text, source: t.source,
+          isnadTranslation: t.isnadTranslation,
+          matnTranslation: t.matnTranslation,
+          footnotesTranslation: t.footnotesTranslation,
+          kitabTranslation: t.kitabTranslation,
+          chapterTranslation: t.chapterTranslation,
+          gradeExplanationTranslation: t.gradeExplanationTranslation,
+        },
       ])
     );
     mergedHadiths = hadiths.map((hadith) => {
@@ -117,6 +129,12 @@ export async function fetchAndMergeTranslations(
         translation: match.text,
         translationSource: match.source || undefined,
         translationPending: false,
+        isnadTranslation: match.isnadTranslation,
+        matnTranslation: match.matnTranslation,
+        footnotesTranslation: match.footnotesTranslation,
+        kitabTranslation: match.kitabTranslation,
+        chapterTranslation: match.chapterTranslation,
+        gradeExplanationTranslation: match.gradeExplanationTranslation,
       };
     });
   }

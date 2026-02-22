@@ -63,7 +63,7 @@ export const HadithSchema = z.object({
   chapterEnglish: z.string().nullable(),
   sourceUrl: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
-  // Isnad/matn separation (hadithunlocked.com)
+  // Isnad/matn separation
   isnad: z.string().nullable().optional(),
   matn: z.string().nullable().optional(),
   gradeText: z.string().nullable().optional(),
@@ -72,6 +72,11 @@ export const HadithSchema = z.object({
   gradeExplanation: z.string().nullable().optional(),
   graderName: z.string().nullable().optional(),
   sourceBookName: z.string().nullable().optional(),
+  // Source location
+  sourceBookId: z.string().nullable().optional(),
+  sourcePageStart: z.number().nullable().optional(),
+  sourceVolumeNumber: z.number().nullable().optional(),
+  sourcePrintedPage: z.number().nullable().optional(),
 });
 
 export const HadithBookResponse = z.object({
@@ -103,7 +108,7 @@ export const HadithDetailResponse = z.object({
     chapterEnglish: z.string().nullable(),
     sourceUrl: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
-    // Isnad/matn separation (hadithunlocked.com)
+    // Isnad/matn separation
     isnad: z.string().nullable().optional(),
     matn: z.string().nullable().optional(),
     gradeText: z.string().nullable().optional(),
@@ -112,6 +117,11 @@ export const HadithDetailResponse = z.object({
     gradeExplanation: z.string().nullable().optional(),
     graderName: z.string().nullable().optional(),
     sourceBookName: z.string().nullable().optional(),
+    // Source location
+    sourceBookId: z.string().nullable().optional(),
+    sourcePageStart: z.number().nullable().optional(),
+    sourceVolumeNumber: z.number().nullable().optional(),
+    sourcePrintedPage: z.number().nullable().optional(),
     book: z.object({
       bookNumber: z.number(),
       nameEnglish: z.string().nullable(),

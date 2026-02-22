@@ -60,6 +60,30 @@ function isWrongLanguage(text: string, targetLang: string): boolean {
   return latinRatio > 0.7;
 }
 
+/** Structured translation fields stored in HadithTranslation */
+interface StructuredTranslation {
+  isnadTranslation: string | null;
+  matnTranslation: string | null;
+  footnotesTranslation: string | null;
+  kitabTranslation: string | null;
+  chapterTranslation: string | null;
+  gradeExplanationTranslation: string | null;
+}
+
+/** Response item for a translated hadith */
+interface TranslationResponseItem {
+  bookId: number;
+  hadithNumber: string;
+  translation: string;
+  source: string;
+  isnadTranslation?: string | null;
+  matnTranslation?: string | null;
+  footnotesTranslation?: string | null;
+  kitabTranslation?: string | null;
+  chapterTranslation?: string | null;
+  gradeExplanationTranslation?: string | null;
+}
+
 export const hadithTranslateRoutes = new Hono();
 
 hadithTranslateRoutes.post("/translate-hadiths", async (c) => {
@@ -83,7 +107,11 @@ hadithTranslateRoutes.post("/translate-hadiths", async (c) => {
       language,
       OR: orConditions,
     },
-    select: { bookId: true, hadithNumber: true, text: true, source: true },
+    select: {
+      bookId: true, hadithNumber: true, text: true, source: true,
+      isnadTranslation: true, matnTranslation: true, footnotesTranslation: true,
+      kitabTranslation: true, chapterTranslation: true, gradeExplanationTranslation: true,
+    },
   });
 
   const cachedMap = new Map(
@@ -91,12 +119,7 @@ hadithTranslateRoutes.post("/translate-hadiths", async (c) => {
   );
 
   // Separate cached vs uncached
-  const translations: Array<{
-    bookId: number;
-    hadithNumber: string;
-    translation: string;
-    source: string;
-  }> = [];
+  const translations: TranslationResponseItem[] = [];
 
   const toTranslate: typeof hadiths = [];
 
@@ -113,6 +136,12 @@ hadithTranslateRoutes.post("/translate-hadiths", async (c) => {
           hadithNumber: h.hadithNumber,
           translation: hit.text,
           source: hit.source || "llm",
+          isnadTranslation: hit.isnadTranslation,
+          matnTranslation: hit.matnTranslation,
+          footnotesTranslation: hit.footnotesTranslation,
+          kitabTranslation: hit.kitabTranslation,
+          chapterTranslation: hit.chapterTranslation,
+          gradeExplanationTranslation: hit.gradeExplanationTranslation,
         });
       }
     } else {
@@ -125,19 +154,70 @@ hadithTranslateRoutes.post("/translate-hadiths", async (c) => {
     return c.json({ translations });
   }
 
-  // 3. Batch LLM call for untranslated hadiths
-  const numberedHadiths = toTranslate
-    .map((h, i) => `[${i}] ${h.text}`)
-    .join("\n\n");
+  // 3. Fetch hadith records for structured fields (isnad, matn, footnotes, kitab, chapter, gradeExplanation)
+  const hadithRecords = await prisma.hadith.findMany({
+    where: {
+      OR: toTranslate.map((h) => ({ bookId: h.bookId, hadithNumber: h.hadithNumber })),
+    },
+    select: {
+      bookId: true, hadithNumber: true,
+      isnad: true, matn: true, footnotes: true,
+      kitabArabic: true, chapterArabic: true, gradeExplanation: true,
+    },
+  });
 
+  const hadithRecordMap = new Map(
+    hadithRecords.map((h) => [`${h.bookId}-${h.hadithNumber}`, h])
+  );
+
+  // 4. Build structured LLM prompt
   const isEnglish = language === "en";
 
-  const prompt = `Translate the following Arabic hadiths to ${languageName}.
-Each hadith is numbered with [N]. Return a JSON array where each element has "index" (the hadith number) and "translation" (the ${languageName} text).
-Only output the translation — do not include the original Arabic or the [N] markers.
+  // Build input blocks with labeled fields per hadith
+  const numberedInputs = toTranslate.map((h, i) => {
+    const record = hadithRecordMap.get(`${h.bookId}-${h.hadithNumber}`);
+    const parts: string[] = [`[${i}]`];
+
+    if (record?.isnad) {
+      parts.push(`ISNAD: ${record.isnad}`);
+    }
+    if (record?.matn) {
+      parts.push(`MATN: ${record.matn}`);
+    }
+    // If neither isnad nor matn, use the full text
+    if (!record?.isnad && !record?.matn) {
+      parts.push(`MATN: ${h.text}`);
+    }
+    if (record?.footnotes) {
+      parts.push(`FOOTNOTES: ${record.footnotes}`);
+    }
+    if (record?.kitabArabic) {
+      parts.push(`KITAB: ${record.kitabArabic}`);
+    }
+    if (record?.chapterArabic) {
+      parts.push(`CHAPTER: ${record.chapterArabic}`);
+    }
+    if (record?.gradeExplanation) {
+      parts.push(`GRADE_EXPLANATION: ${record.gradeExplanation}`);
+    }
+    return parts.join("\n");
+  }).join("\n\n");
+
+  const prompt = `Translate the following Arabic hadith fields to ${languageName}.
+Each hadith is numbered with [N] and has labeled fields (ISNAD, MATN, FOOTNOTES, KITAB, CHAPTER, GRADE_EXPLANATION).
+Return a JSON array where each element has:
+- "index": the hadith number [N]
+- "isnad": translated chain of narrators (if ISNAD was provided)
+- "matn": translated hadith body text (if MATN was provided)
+- "footnotes": translated scholarly footnotes (if FOOTNOTES was provided)
+- "kitab": translated book/section heading (if KITAB was provided)
+- "chapter": translated chapter heading (if CHAPTER was provided)
+- "gradeExplanation": translated grade reasoning (if GRADE_EXPLANATION was provided)
+
+Only include fields that were present in the input. Do not include the original Arabic or the field labels.
 
 Guidelines:
-- Translate the full hadith faithfully, preserving isnad (chain of narrators) and matn (body text).
+- Translate each field faithfully, preserving the meaning and tone.
 - Keep narrator names in standard transliterated forms (e.g. Abu Hurayrah, Ibn Abbas, Aisha).${isEnglish ? `
 - "حدثنا" / "أخبرنا" → "narrated to us" / "informed us"
 - "عن" → "from" or "on the authority of" (in isnad context)` : `
@@ -146,10 +226,10 @@ Guidelines:
 - Use ﷺ or the conventional ${languageName} honorific for "صلى الله عليه وسلم".
 
 Arabic hadiths:
-${numberedHadiths}
+${numberedInputs}
 
 Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
-[{"index": 0, "translation": "..."}, {"index": 1, "translation": "..."}]`;
+[{"index": 0, "isnad": "Narrated to us by...", "matn": "The Prophet ﷺ said...", "footnotes": "Also narrated by...", "kitab": "Book of Prayer", "chapter": "Chapter on the Night Prayer"}]`;
 
   const model = "google/gemini-3-flash-preview";
   const modelKey = "gemini-flash";
@@ -166,8 +246,19 @@ Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
     return c.json({ translations });
   }
 
-  // 4. Parse JSON response
-  let llmTranslations: Array<{ index: number; translation: string }> = [];
+  // 5. Parse JSON response
+  interface LLMTranslationItem {
+    index: number;
+    isnad?: string;
+    matn?: string;
+    footnotes?: string;
+    kitab?: string;
+    chapter?: string;
+    gradeExplanation?: string;
+    translation?: string; // fallback for backward compat
+  }
+
+  let llmTranslations: LLMTranslationItem[] = [];
   try {
     let cleaned = result.content.trim();
     if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
@@ -180,12 +271,17 @@ Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
     for (const item of parsed.slice(0, toTranslate.length)) {
       if (
         typeof item?.index === "number" &&
-        Number.isFinite(item.index) &&
-        typeof item?.translation === "string"
+        Number.isFinite(item.index)
       ) {
         llmTranslations.push({
           index: item.index,
-          translation: item.translation.slice(0, 30_000),
+          isnad: typeof item.isnad === "string" ? item.isnad.slice(0, 30_000) : undefined,
+          matn: typeof item.matn === "string" ? item.matn.slice(0, 30_000) : undefined,
+          footnotes: typeof item.footnotes === "string" ? item.footnotes.slice(0, 30_000) : undefined,
+          kitab: typeof item.kitab === "string" ? item.kitab.slice(0, 1000) : undefined,
+          chapter: typeof item.chapter === "string" ? item.chapter.slice(0, 1000) : undefined,
+          gradeExplanation: typeof item.gradeExplanation === "string" ? item.gradeExplanation.slice(0, 30_000) : undefined,
+          translation: typeof item.translation === "string" ? item.translation.slice(0, 30_000) : undefined,
         });
       }
     }
@@ -194,20 +290,28 @@ Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
     return c.json({ translations, error: "Failed to parse LLM response" });
   }
 
-  // 5. Persist and collect results
+  // 6. Persist and collect results
   for (const t of llmTranslations) {
     const hadith = toTranslate[t.index];
     if (!hadith) continue;
 
+    // Compose full text from structured parts (isnad + matn) for backward compat
+    const composedText = [t.isnad, t.matn].filter(Boolean).join(" ") || t.translation || "";
+
     // Validate the translation is in the target language (for non-Latin-script languages)
-    if (isWrongLanguage(t.translation, language)) {
+    if (isWrongLanguage(composedText, language)) {
       console.warn(`[hadith-translate] Wrong language detected for ${hadith.bookId}:${hadith.hadithNumber} (expected ${language}), skipping cache`);
-      // Still return it to the user (better than nothing) but don't cache it
       translations.push({
         bookId: hadith.bookId,
         hadithNumber: hadith.hadithNumber,
-        translation: t.translation,
+        translation: composedText,
         source: "llm",
+        isnadTranslation: t.isnad || null,
+        matnTranslation: t.matn || null,
+        footnotesTranslation: t.footnotes || null,
+        kitabTranslation: t.kitab || null,
+        chapterTranslation: t.chapter || null,
+        gradeExplanationTranslation: t.gradeExplanation || null,
       });
       continue;
     }
@@ -230,8 +334,14 @@ Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
         translations.push({
           bookId: hadith.bookId,
           hadithNumber: hadith.hadithNumber,
-          translation: t.translation,
+          translation: composedText,
           source: "llm",
+          isnadTranslation: t.isnad || null,
+          matnTranslation: t.matn || null,
+          footnotesTranslation: t.footnotes || null,
+          kitabTranslation: t.kitab || null,
+          chapterTranslation: t.chapter || null,
+          gradeExplanationTranslation: t.gradeExplanation || null,
         });
         continue;
       }
@@ -244,14 +354,30 @@ Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
             language,
           },
         },
-        update: { text: t.translation, source: "llm", model: modelKey },
+        update: {
+          text: composedText,
+          source: "llm",
+          model: modelKey,
+          isnadTranslation: t.isnad || null,
+          matnTranslation: t.matn || null,
+          footnotesTranslation: t.footnotes || null,
+          kitabTranslation: t.kitab || null,
+          chapterTranslation: t.chapter || null,
+          gradeExplanationTranslation: t.gradeExplanation || null,
+        },
         create: {
           bookId: hadith.bookId,
           hadithNumber: hadith.hadithNumber,
           language,
-          text: t.translation,
+          text: composedText,
           source: "llm",
           model: modelKey,
+          isnadTranslation: t.isnad || null,
+          matnTranslation: t.matn || null,
+          footnotesTranslation: t.footnotes || null,
+          kitabTranslation: t.kitab || null,
+          chapterTranslation: t.chapter || null,
+          gradeExplanationTranslation: t.gradeExplanation || null,
         },
       });
     } catch (err) {
@@ -262,8 +388,14 @@ Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
     translations.push({
       bookId: hadith.bookId,
       hadithNumber: hadith.hadithNumber,
-      translation: t.translation,
+      translation: composedText,
       source: "llm",
+      isnadTranslation: t.isnad || null,
+      matnTranslation: t.matn || null,
+      footnotesTranslation: t.footnotes || null,
+      kitabTranslation: t.kitab || null,
+      chapterTranslation: t.chapter || null,
+      gradeExplanationTranslation: t.gradeExplanation || null,
     });
   }
 

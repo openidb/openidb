@@ -11,7 +11,7 @@ import {
   type ResolvedSource,
 } from "../../graph/search";
 import { normalizeArabicText } from "../../embeddings";
-import { generatePageReferenceUrl, generateHadithSourceUrl, HADITHUNLOCKED_SLUGS } from "../../utils/source-urls";
+import { generatePageReferenceUrl, generateHadithSourceUrl } from "../../utils/source-urls";
 import { calculateRRFScore, getMatchType } from "./fusion";
 import { getSearchStrategy } from "./query-utils";
 import { RRF_K, SEMANTIC_WEIGHT, KEYWORD_WEIGHT } from "./config";
@@ -372,9 +372,8 @@ export async function buildDebugStats(
 }
 
 /**
- * Resolve source URLs for hadiths that need DB lookups:
- * - hadithunlocked.com hadiths need numberInCollection for deep links
- * - hadiths with sourceBookId/sourcePageStart get Turath page URLs
+ * Resolve source URLs for hadiths that need DB lookups.
+ * Hadiths with sourceBookId/sourcePageStart get Turath page URLs.
  */
 export async function resolveHadithSourceUrls(hadiths: HadithResult[]): Promise<HadithResult[]> {
   if (hadiths.length === 0) return hadiths;
@@ -401,18 +400,35 @@ export async function resolveHadithSourceUrls(hadiths: HadithResult[]): Promise<
       numberInCollection: true,
       sourceBookId: true,
       sourcePageStart: true,
+      sourceVolumeNumber: true,
+      sourcePrintedPage: true,
+      isnad: true,
+      matn: true,
       bookId: true,
       book: { select: { collection: { select: { slug: true } } } },
     },
   });
 
-  const rowMap = new Map<string, { bookId: number; numberInCollection: string | null; sourceBookId: string | null; sourcePageStart: number | null }>();
+  const rowMap = new Map<string, {
+    bookId: number;
+    numberInCollection: string | null;
+    sourceBookId: string | null;
+    sourcePageStart: number | null;
+    sourceVolumeNumber: number | null;
+    sourcePrintedPage: number | null;
+    isnad: string | null;
+    matn: string | null;
+  }>();
   for (const row of rows) {
     rowMap.set(`${row.book.collection.slug}-${row.hadithNumber}`, {
       bookId: row.bookId,
       numberInCollection: row.numberInCollection,
       sourceBookId: row.sourceBookId,
       sourcePageStart: row.sourcePageStart,
+      sourceVolumeNumber: row.sourceVolumeNumber,
+      sourcePrintedPage: row.sourcePrintedPage,
+      isnad: row.isnad,
+      matn: row.matn,
     });
   }
 
@@ -428,6 +444,10 @@ export async function resolveHadithSourceUrls(hadiths: HadithResult[]): Promise<
         h.collectionSlug, h.hadithNumber, h.bookNumber,
         extra.numberInCollection, extra.sourceBookId, extra.sourcePageStart,
       ),
+      sourceVolumeNumber: extra.sourceVolumeNumber,
+      sourcePrintedPage: extra.sourcePrintedPage,
+      isnad: extra.isnad,
+      matn: extra.matn,
     };
   });
 }

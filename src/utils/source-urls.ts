@@ -7,8 +7,6 @@
 
 export const SOURCES = {
   turath: [{ name: "Turath Library", url: "https://turath.io", type: "api" }],
-  sunnah: [{ name: "sunnah.com", url: "https://sunnah.com", type: "scrape" }],
-  hadithUnlocked: [{ name: "hadithunlocked.com", url: "https://hadithunlocked.com", type: "bulk" }],
   quranCloud: [{ name: "Al Quran Cloud API", url: "https://api.alquran.cloud", type: "api" }],
   tafsir: [
     { name: "spa5k/tafsir_api", url: "https://github.com/spa5k/tafsir_api", type: "api" },
@@ -26,64 +24,9 @@ export const SOURCES = {
   ],
 } as const;
 
-// Collections that use /collection/book/hadith format instead of /collection:hadith
-const BOOK_PATH_COLLECTIONS = new Set(["malik", "bulugh"]);
-
-/** Collection slugs sourced from hadithunlocked.com */
-export const HADITHUNLOCKED_SLUGS = new Set([
-  "mustadrak", "ibn-hibban", "mujam-kabir", "sunan-kubra-bayhaqi",
-  "sunan-kubra-nasai", "suyuti", "ahmad-zuhd",
-]);
-
-// Slug → hadithunlocked.com alias mapping (reverse of import script's ALIAS_TO_SLUG)
-const SLUG_TO_HADITHUNLOCKED_ALIAS: Record<string, string> = {
-  mustadrak: "hakim",
-  "ibn-hibban": "ibnhibban",
-  "mujam-kabir": "tabarani",
-  "sunan-kubra-bayhaqi": "bayhaqi",
-  "sunan-kubra-nasai": "nasai-kubra",
-  suyuti: "suyuti",
-  "ahmad-zuhd": "ahmad-zuhd",
-};
-
 /**
- * Generate the correct sunnah.com URL for a hadith.
- * Most collections use /collection:hadith format, but some use /collection/book/hadith.
- */
-export function generateSunnahUrl(
-  collectionSlug: string,
-  hadithNumber: string,
-  bookNumber: number
-): string {
-  const cleanHadithNumber = hadithNumber.replace(/[A-Za-z]+$/, "");
-  if (BOOK_PATH_COLLECTIONS.has(collectionSlug)) {
-    return `https://sunnah.com/${collectionSlug}/${bookNumber}/${cleanHadithNumber}`;
-  }
-  return `https://sunnah.com/${collectionSlug}:${cleanHadithNumber}`;
-}
-
-/**
- * Generate the correct hadithunlocked.com URL for a hadith.
- * Uses numberInCollection (the display number like "6204a-2") when available,
- * falls back to collection page if not.
- */
-function generateHadithUnlockedUrl(
-  collectionSlug: string,
-  numberInCollection?: string | null
-): string {
-  const alias = SLUG_TO_HADITHUNLOCKED_ALIAS[collectionSlug];
-  if (!alias) return "";
-  if (numberInCollection) {
-    return `https://hadithunlocked.com/${alias}:${numberInCollection}`;
-  }
-  // Fallback: link to collection page (no specific hadith)
-  return `https://hadithunlocked.com/${alias}`;
-}
-
-/**
- * Generate the correct source URL for any hadith, picking the right site based on collection slug.
- * Prefers Turath book page URL when source page info is available.
- * For hadithunlocked collections, numberInCollection is required for deep links.
+ * Generate the correct source URL for any hadith.
+ * All hadiths now come from Turath book editions — links to internal reader pages.
  */
 export function generateHadithSourceUrl(
   collectionSlug: string,
@@ -93,14 +36,10 @@ export function generateHadithSourceUrl(
   sourceBookId?: string | null,
   sourcePageStart?: number | null,
 ): string {
-  // Prefer Turath page URL when source book page is available
   if (sourceBookId && sourcePageStart) {
     return generatePageReferenceUrl(sourceBookId, sourcePageStart);
   }
-  if (collectionSlug in SLUG_TO_HADITHUNLOCKED_ALIAS) {
-    return generateHadithUnlockedUrl(collectionSlug, numberInCollection);
-  }
-  return generateSunnahUrl(collectionSlug, hadithNumber, bookNumber);
+  return "";
 }
 
 /**

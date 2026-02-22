@@ -30,6 +30,6 @@ statsRoutes.openapi(getStats, async (c) => {
   c.header("Cache-Control", "public, max-age=86400, stale-while-revalidate=86400");
   return c.json({
     bookCount, authorCount, hadithCount, categoryCount,
-    _sources: [...SOURCES.turath, ...SOURCES.quranCloud, ...SOURCES.sunnah, ...SOURCES.hadithUnlocked],
+    _sources: [...SOURCES.turath, ...SOURCES.quranCloud],
   }, 200);
 });

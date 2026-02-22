@@ -72,9 +72,19 @@ export interface HadithResult {
   chapterArabic: string | null;
   chapterEnglish: string | null;
   sourceUrl: string;
+  sourceVolumeNumber?: number | null;
+  sourcePrintedPage?: number | null;
+  isnad?: string | null;
+  matn?: string | null;
   translation?: string;
   translationSource?: string;
   translationPending?: boolean;
+  isnadTranslation?: string | null;
+  matnTranslation?: string | null;
+  footnotesTranslation?: string | null;
+  kitabTranslation?: string | null;
+  chapterTranslation?: string | null;
+  gradeExplanationTranslation?: string | null;
 }
 
 export interface AuthorResult {

@@ -185,6 +185,7 @@ export const hadithsIndexConfig: IndicesCreateRequest = {
       id: { type: "integer" },
       book_id: { type: "integer" },
       hadith_number: { type: "keyword" },
+      number_in_collection: { type: "keyword" },
       text_arabic: { type: "text", index: false },
       text_plain: { type: "text", index: false },
       text_searchable: {
@@ -199,8 +200,24 @@ export const hadithsIndexConfig: IndicesCreateRequest = {
           },
         },
       },
+      // Structural headings
+      kitab_arabic: { type: "text", index: false },
       chapter_arabic: { type: "text", index: false },
       chapter_english: { type: "keyword" },
+      // Isnad/matn separation
+      isnad: { type: "text", index: false },
+      matn: { type: "text", index: false },
+      // Grading metadata
+      grade: { type: "keyword" },
+      grade_text: { type: "text", index: false },
+      grader_name: { type: "keyword" },
+      // Source references
+      source_book_id: { type: "keyword" },
+      source_page_start: { type: "integer" },
+      source_volume_number: { type: "integer" },
+      source_printed_page: { type: "integer" },
+      footnotes: { type: "text", index: false },
+      // Book/collection metadata
       book_number: { type: "integer" },
       book_name_arabic: { type: "keyword" },
       book_name_english: { type: "keyword" },

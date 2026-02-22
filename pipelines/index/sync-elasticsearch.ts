@@ -116,7 +116,7 @@ async function syncHadiths() {
   let offset = 0;
 
   while (offset < totalCount) {
-    // Fetch hadiths with denormalized book/collection data
+    // Fetch hadiths with all metadata (denormalized book/collection data)
     const hadiths = await prisma.hadith.findMany({
       skip: offset,
       take: BATCH_SIZE,
@@ -124,11 +124,22 @@ async function syncHadiths() {
         id: true,
         bookId: true,
         hadithNumber: true,
+        numberInCollection: true,
         textArabic: true,
         textPlain: true,
         chapterArabic: true,
         chapterEnglish: true,
         isChainVariation: true,
+        kitabArabic: true,
+        isnad: true,
+        matn: true,
+        grade: true,
+        gradeText: true,
+        graderName: true,
+        sourceBookId: true,
+        sourcePageStart: true,
+        sourceVolumeNumber: true,
+        footnotes: true,
         book: {
           select: {
             bookNumber: true,
@@ -151,10 +162,13 @@ async function syncHadiths() {
     const bulkBody: BulkBody = [];
 
     for (const hadith of hadiths) {
-      // Build text_searchable: metadata + text_plain for BM25 keyword search
+      // Build text_searchable: comprehensive metadata + text for BM25 keyword search
       const searchableParts = [hadith.book.collection.nameArabic];
+      if (hadith.book.nameArabic) searchableParts.push(hadith.book.nameArabic);
+      if (hadith.kitabArabic) searchableParts.push(hadith.kitabArabic);
       if (hadith.chapterArabic) searchableParts.push(hadith.chapterArabic);
       searchableParts.push(hadith.textPlain);
+      if (hadith.graderName) searchableParts.push(hadith.graderName);
       const textSearchable = searchableParts.join(" ");
 
       bulkBody.push({
@@ -167,11 +181,22 @@ async function syncHadiths() {
         id: hadith.id,
         book_id: hadith.bookId,
         hadith_number: hadith.hadithNumber,
+        number_in_collection: hadith.numberInCollection,
         text_arabic: hadith.textArabic,
         text_plain: hadith.textPlain,
         text_searchable: textSearchable,
+        kitab_arabic: hadith.kitabArabic,
         chapter_arabic: hadith.chapterArabic,
         chapter_english: hadith.chapterEnglish,
+        isnad: hadith.isnad,
+        matn: hadith.matn,
+        grade: hadith.grade,
+        grade_text: hadith.gradeText,
+        grader_name: hadith.graderName,
+        source_book_id: hadith.sourceBookId,
+        source_page_start: hadith.sourcePageStart,
+        source_volume_number: hadith.sourceVolumeNumber,
+        footnotes: hadith.footnotes,
         is_chain_variation: hadith.isChainVariation,
         book_number: hadith.book.bookNumber,
         book_name_arabic: hadith.book.nameArabic,

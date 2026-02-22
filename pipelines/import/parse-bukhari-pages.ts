@@ -8,8 +8,8 @@
  *   - Hadith number: [٠-٩]+ - (Arabic-Indic digits + dash)
  *   - Kitab heading: كِتَابُ / كتاب at start of section
  *   - Bab heading: بَابُ / بَابٌ at start of section
- *   - Isnad/Matn boundary: «guillemets» or fallback heuristics
  *   - Footnotes: after _________ separator
+ *   - Isnad/Matn splitting deferred to LLM (split-isnad-matn-llm.ts)
  *
  * Usage: bun run pipelines/import/parse-bukhari-pages.ts [--chunk=NNN] [--dry-run]
  */
@@ -183,74 +183,20 @@ function parseHeadings(
   return { kitab, bab };
 }
 
-/**
- * Split hadith text into isnad and matn.
- *
- * Primary: guillemet boundary «matn»
- * Fallback: common transition phrases (قَالَ:, يَقُولُ:, أَنَّ, etc.)
- */
-function splitIsnadMatn(text: string): { isnad: string; matn: string } {
-  // Primary: guillemet-based split
-  const guilStart = text.indexOf("«");
-  const guilEnd = text.lastIndexOf("»");
+/** Detect chain variations: short texts referencing a previous hadith */
+function detectChainVariation(fullText: string): boolean {
+  const stripped = stripDiacritics(fullText);
 
-  if (guilStart !== -1) {
-    const isnad = text.substring(0, guilStart).trim();
-    const matn =
-      guilEnd > guilStart
-        ? text.substring(guilStart + 1, guilEnd).trim()
-        : text.substring(guilStart + 1).trim();
-    return { isnad, matn };
-  }
-
-  // Fallback: look for common transition phrases that mark where isnad ends
-  // Try to find the last narrator phrase before the actual content
-  const transitionPatterns = [
-    /قَالَ:\s/,
-    /يَقُولُ:\s/,
-    /أَنَّهُ\s/,
-    /عَنِ النَّبِيِّ ﷺ\s/,
-    /عَنْ رَسُولِ اللهِ ﷺ\s/,
-    /قَالَ رَسُولُ اللهِ ﷺ:\s/,
-    /ﷺ قَالَ:\s/,
-    /ﷺ:\s/,
-  ];
-
-  // Find the best split point — prefer later splits (closer to actual content)
-  let bestSplit = -1;
-  let bestLen = 0;
-
-  for (const pattern of transitionPatterns) {
-    const match = text.match(pattern);
-    if (match && match.index !== undefined) {
-      const splitAt = match.index + match[0].length;
-      if (splitAt > bestSplit) {
-        bestSplit = splitAt;
-        bestLen = match[0].length;
-      }
+  if (stripped.length < 200) {
+    if (
+      /بمثله|بنحوه|مثله|نحوه|بمثل ذلك|بنحو حديثهم|بنحو حديث|بهذا الاسناد/.test(
+        stripped
+      )
+    ) {
+      return true;
     }
-  }
-
-  if (bestSplit > 0 && bestSplit < text.length * 0.8) {
-    return {
-      isnad: text.substring(0, bestSplit - bestLen).trim(),
-      matn: text.substring(bestSplit).trim(),
-    };
-  }
-
-  // Last resort: entire text as isnad (chain variations)
-  return { isnad: text, matn: "" };
-}
-
-/**
- * Check if this hadith is a chain variation (no real matn, just references a previous hadith).
- * Common markers: مِثْلَهُ, نَحْوَهُ, بِمِثْلِهِ
- */
-function isChainVariation(matn: string): boolean {
-  if (!matn) return true;
-  const trimmed = matn.trim();
-  if (trimmed.length < 20) {
-    if (/مِثْلَهُ|نَحْوَهُ|بِمِثْلِهِ/.test(trimmed)) return true;
+    // Very short text — likely a brief cross-reference
+    if (stripped.length < 60) return true;
   }
   return false;
 }
@@ -399,19 +345,19 @@ function parseAllPages(pages: PageData[]): {
     // Split footnotes
     const { main, footnotes } = splitFootnotes(hadithBody);
 
-    // Split isnad/matn
-    const { isnad, matn } = splitIsnadMatn(main);
+    // Store full text in matn (isnad/matn splitting done later by LLM)
+    const cleanedMain = stripPageMarkers(main.trim());
 
     hadiths.push({
       hadithNumber: hs.number,
-      isnad: stripPageMarkers(isnad.trim()),
-      matn: stripPageMarkers(matn.trim()),
+      isnad: "",
+      matn: cleanedMain,
       kitab: currentKitab,
       bab: currentBab,
       footnotes,
       pageStart: startPage.pageNumber,
       pageEnd: endPage.pageNumber,
-      isChainVariation: isChainVariation(matn),
+      isChainVariation: detectChainVariation(cleanedMain),
     });
   }
 
