@@ -68,6 +68,7 @@ function parsePage(html: string, pageNum: number): ScrapedWord[] {
 
   // Split content by line-container boundaries
   const lineChunks = content.split(/(?=<div class="line-container")/);
+  let lastSurahNum = 0;
 
   for (const chunk of lineChunks) {
     // Extract line number
@@ -87,6 +88,7 @@ function parsePage(html: string, pageNum: number): ScrapedWord[] {
     if (lineType === "surah_name") {
       const surahIconMatch = chunk.match(/surah-name-v4-icon[^>]*>\s*surah(\d+)\s*</);
       const surahNum = surahIconMatch ? parseInt(surahIconMatch[1]) : 0;
+      lastSurahNum = surahNum;
       words.push({
         pageNumber: pageNum,
         lineNumber: lineNum,
@@ -98,6 +100,23 @@ function parsePage(html: string, pageNum: number): ScrapedWord[] {
         wordPosition: 0,
         textUthmani: `surah${String(surahNum).padStart(3, "0")}`,
         glyphCode: `surah${String(surahNum).padStart(3, "0")}`,
+      });
+      continue;
+    }
+
+    // For bismillah lines, create a synthetic entry (no word spans in HTML)
+    if (lineType === "bismillah") {
+      words.push({
+        pageNumber: pageNum,
+        lineNumber: lineNum,
+        lineType: "bismillah",
+        positionInLine: 1,
+        charTypeName: "bismillah",
+        surahNumber: lastSurahNum,
+        ayahNumber: 0,
+        wordPosition: 0,
+        textUthmani: "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
+        glyphCode: "﷽",
       });
       continue;
     }
@@ -117,6 +136,7 @@ function parsePage(html: string, pageNum: number): ScrapedWord[] {
       const wordPos = parseInt(match[4]);
       const glyphChar = match[7].trim();
 
+      lastSurahNum = surahNum;
       seqPosition++;
       words.push({
         pageNumber: pageNum,
