@@ -177,8 +177,10 @@ async function main() {
             failed += keys.length;
             return;
           }
-          const meta = await metaRes.json();
-          const pdfLinks = meta["\u0650"] as { root?: string; files?: string[] } | null;
+          const raw = await metaRes.json();
+          // Turath API nests data under "meta" key
+          const meta = raw.meta || raw;
+          const pdfLinks = (meta.pdf_links || meta["\u0650"]) as { root?: string; files?: string[] } | null;
 
           if (!pdfLinks?.files || pdfLinks.files.length === 0) {
             console.warn(`  [${idx}/${toProcess.length}] Book ${bookId}: No PDF links in metadata`);
