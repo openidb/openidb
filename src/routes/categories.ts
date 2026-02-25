@@ -6,6 +6,7 @@ import {
   CategoryListQuery, CategoryIdParam, CategoryDetailQuery,
   CategoryListResponse, CategoryDetailResponse,
 } from "../schemas/categories";
+import { getIndexedBookIds } from "../search/elasticsearch-catalog";
 
 // --- Category list cache (5-minute TTL) ---
 import { TTLCache } from "../lib/ttl-cache";
@@ -49,28 +50,58 @@ const getCategory = createRoute({
 export const categoriesRoutes = new OpenAPIHono();
 
 categoriesRoutes.openapi(listCategories, async (c) => {
-  const { flat, century } = c.req.valid("query");
+  const { flat, century, hasPdf, isIndexed } = c.req.valid("query");
   const centuryFilter = century
     ? century.split(",").map(Number).filter((n) => !isNaN(n))
     : [];
 
-  // When century filter is active, skip cache and run filtered SQL
-  if (centuryFilter.length > 0 && flat === "true") {
-    const rows = await prisma.$queryRaw<
+  const hasFilters = centuryFilter.length > 0 || hasPdf === "true" || isIndexed === "true";
+
+  // When any filter is active and flat mode, run filtered SQL
+  if (hasFilters && flat === "true") {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (centuryFilter.length > 0) {
+      conditions.push(`a.death_century_hijri = ANY($${idx}::int[])`);
+      params.push(centuryFilter);
+      idx++;
+    }
+    if (hasPdf === "true") {
+      conditions.push("b.has_pdf = true");
+    }
+    if (isIndexed === "true") {
+      const indexedIds = await getIndexedBookIds();
+      if (indexedIds === null || indexedIds.size === 0) {
+        // No indexed books — all counts are 0, return empty categories
+        const allCats = await prisma.category.findMany({ orderBy: { nameArabic: "asc" }, select: { id: true, code: true, nameArabic: true, nameEnglish: true, parentId: true } });
+        return c.json({ categories: allCats.map((cat) => ({ ...cat, booksCount: 0 })), _sources: [...SOURCES.turath] }, 200);
+      }
+      conditions.push(`b.id = ANY($${idx})`);
+      params.push([...indexedIds]);
+      idx++;
+    }
+
+    const whereSQL = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const joinAuthor = centuryFilter.length > 0 ? "JOIN authors a ON a.id = b.author_id" : "";
+
+    const rows = await prisma.$queryRawUnsafe<
       { id: number; code: string | null; name_arabic: string; name_english: string | null; parent_id: number | null; books_count: number }[]
-    >`
-      SELECT c.id, c.code, c.name_arabic, c.name_english, c.parent_id,
-             COALESCE(bc.cnt, 0)::int AS books_count
-      FROM categories c
-      LEFT JOIN (
-        SELECT b.category_id, COUNT(*)::int AS cnt
-        FROM books b
-        JOIN authors a ON a.id = b.author_id
-        WHERE a.death_century_hijri = ANY(${centuryFilter}::int[])
-        GROUP BY b.category_id
-      ) bc ON bc.category_id = c.id
-      ORDER BY c.name_arabic
-    `;
+    >(
+      `SELECT c.id, c.code, c.name_arabic, c.name_english, c.parent_id,
+              COALESCE(bc.cnt, 0)::int AS books_count
+       FROM categories c
+       LEFT JOIN (
+         SELECT b.category_id, COUNT(*)::int AS cnt
+         FROM books b
+         ${joinAuthor}
+         ${whereSQL}
+         GROUP BY b.category_id
+       ) bc ON bc.category_id = c.id
+       ORDER BY c.name_arabic`,
+      ...params,
+    );
 
     const result = {
       categories: rows.map((r) => ({

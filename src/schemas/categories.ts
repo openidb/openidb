@@ -4,6 +4,8 @@ import { PaginationQuery, SourceSchema } from "./common";
 export const CategoryListQuery = z.object({
   flat: z.enum(["true", "false"]).optional().openapi({ example: "false", description: "Return flat list instead of tree" }),
   century: z.string().optional().openapi({ example: "3,7", description: "Filter counts by century (comma-separated)" }),
+  hasPdf: z.enum(["true"]).optional().openapi({ description: "Only count books with PDFs" }),
+  isIndexed: z.enum(["true"]).optional().openapi({ description: "Only count indexed books" }),
 });
 
 export const CategoryIdParam = z.object({
