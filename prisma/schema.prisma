@@ -150,6 +150,10 @@ model Book {
   // Time Period (for filtering/grouping)
   timePeriod String? @map("time_period")
 
+  // Pre-computed feature flags (updated via recompute-book-features script)
+  hasPdf              Boolean  @default(false) @map("has_pdf")
+  translatedLanguages String[] @default([]) @map("translated_languages")
+
   // Relationships
   keywords          BookKeyword[]
   pages             Page[]

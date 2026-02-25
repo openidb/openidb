@@ -14,21 +14,6 @@ import {
 } from "../schemas/books";
 import { searchBooksES, getIndexedBookIds } from "../search/elasticsearch-catalog";
 
-// Cached set of book IDs that have at least one PDF page (5-min TTL)
-let pdfBookIdsCache: { ids: Set<string>; expiry: number } | null = null;
-
-export async function getPdfBookIds(): Promise<Set<string>> {
-  if (pdfBookIdsCache && Date.now() < pdfBookIdsCache.expiry) {
-    return pdfBookIdsCache.ids;
-  }
-  const rows = await prisma.$queryRawUnsafe<{ book_id: string }[]>(
-    `SELECT DISTINCT book_id FROM pages WHERE pdf_url IS NOT NULL AND pdf_url != ''`
-  );
-  const ids = new Set(rows.map((r) => r.book_id));
-  pdfBookIdsCache = { ids, expiry: Date.now() + 5 * 60 * 1000 };
-  return ids;
-}
-
 // --- Route definitions ---
 
 const listBooks = createRoute({
@@ -227,15 +212,9 @@ booksRoutes.openapi(listBooks, async (c) => {
     }
   }
 
-  // Feature filters
+  // Feature filters — use pre-computed columns
   if (hasPdf === "true") {
-    const pdfIds = await getPdfBookIds();
-    if (pdfIds.size === 0) {
-      return c.json({ books: [], total: 0, limit, offset, _sources: [...SOURCES.turath] }, 200);
-    }
-    conditions.push(`b.id = ANY($${paramIdx})`);
-    params.push([...pdfIds]);
-    paramIdx++;
+    conditions.push(`b.has_pdf = true`);
   }
 
   if (isIndexed === "true") {
@@ -252,13 +231,7 @@ booksRoutes.openapi(listBooks, async (c) => {
   }
 
   if (isTranslated === "true" && bookTitleLang && bookTitleLang !== "none" && bookTitleLang !== "transliteration") {
-    conditions.push(`b.id IN (
-      SELECT p.book_id FROM pages p
-      LEFT JOIN page_translations pt ON pt.page_id = p.id AND pt.language = $${paramIdx}
-      WHERE p.page_number > 0
-      GROUP BY p.book_id
-      HAVING COUNT(*) = COUNT(pt.id)
-    )`);
+    conditions.push(`$${paramIdx}::text = ANY(b.translated_languages)`);
     params.push(bookTitleLang);
     paramIdx++;
   }

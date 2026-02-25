@@ -4,10 +4,6 @@ import { prisma } from "../db";
 import { SOURCES } from "../utils/source-urls";
 import { SourceSchema } from "../schemas/common";
 import { getIndexedBookIds } from "../search/elasticsearch-catalog";
-import { getPdfBookIds } from "./books";
-
-const CACHE_TTL_MS = 5 * 60 * 1000;
-const featuresCache = new Map<string, { data: unknown; expiry: number }>();
 
 const BookFeaturesQuery = z.object({
   lang: z.string().max(20).optional().openapi({ example: "en", description: "Language code for isTranslated count" }),
@@ -43,27 +39,20 @@ export const bookFeaturesRoutes = new OpenAPIHono();
 bookFeaturesRoutes.openapi(listFeatures, async (c) => {
   const { lang, categoryId, century } = c.req.valid("query");
 
-  const cacheKey = `${lang || ""}:${categoryId || ""}:${century || ""}`;
-  const cached = featuresCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiry) {
-    c.header("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
-    return c.json(cached.data as any, 200);
-  }
-
-  // Build shared book-level filter conditions
-  const bookConditions: string[] = [];
-  const bookParams: unknown[] = [];
+  // Build shared WHERE conditions for books
+  const conditions: string[] = [];
+  const params: unknown[] = [];
   let paramIdx = 1;
 
   if (categoryId) {
     const ids = categoryId.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0);
     if (ids.length === 1) {
-      bookConditions.push(`b.category_id = $${paramIdx}`);
-      bookParams.push(ids[0]);
+      conditions.push(`b.category_id = $${paramIdx}`);
+      params.push(ids[0]);
       paramIdx++;
     } else if (ids.length > 1) {
-      bookConditions.push(`b.category_id = ANY($${paramIdx})`);
-      bookParams.push(ids);
+      conditions.push(`b.category_id = ANY($${paramIdx})`);
+      params.push(ids);
       paramIdx++;
     }
   }
@@ -71,96 +60,52 @@ bookFeaturesRoutes.openapi(listFeatures, async (c) => {
   if (century) {
     const centuries = century.split(",").map(Number).filter((n) => n >= 1 && n <= 15);
     if (centuries.length > 0) {
-      bookConditions.push(`b.author_id IN (SELECT a.id FROM authors a WHERE a.death_century_hijri = ANY($${paramIdx}))`);
-      bookParams.push(centuries);
+      conditions.push(`b.author_id IN (SELECT a.id FROM authors a WHERE a.death_century_hijri = ANY($${paramIdx}))`);
+      params.push(centuries);
       paramIdx++;
     }
   }
 
-  const bookWhereSQL = bookConditions.length > 0 ? `WHERE ${bookConditions.join(" AND ")}` : "";
+  const whereSQL = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  // Run all 3 counts in parallel
+  // All 3 counts use pre-computed columns — instant queries
   const [pdfCount, indexedCount, translatedCount] = await Promise.all([
-    // hasPdf count — use cached set of PDF book IDs
+    // hasPdf — pre-computed boolean column
     (async () => {
-      const pdfIds = await getPdfBookIds();
-      if (pdfIds.size === 0) return 0;
-
-      if (bookConditions.length === 0) {
-        return pdfIds.size;
-      }
-
-      const pdfParam = paramIdx;
+      const andHasPdf = conditions.length > 0 ? "AND b.has_pdf = true" : "WHERE b.has_pdf = true";
       const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
-        `SELECT COUNT(*)::bigint AS count FROM books b ${bookWhereSQL} AND b.id = ANY($${pdfParam})`,
-        ...bookParams, [...pdfIds],
+        `SELECT COUNT(*)::bigint AS count FROM books b ${whereSQL} ${andHasPdf}`,
+        ...params,
       );
       return Number(rows[0]?.count ?? 0);
     })(),
 
-    // isIndexed count
+    // isIndexed — from Elasticsearch cached set
     (async () => {
       const indexedIds = await getIndexedBookIds();
       if (indexedIds === null || indexedIds.size === 0) return 0;
 
-      if (bookConditions.length === 0) {
+      if (conditions.length === 0) {
         return indexedIds.size;
       }
 
-      // Filter indexed IDs by book-level conditions
-      const idxParam = paramIdx; // capture for this closure
       const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
-        `SELECT COUNT(*)::bigint AS count FROM books b ${bookWhereSQL} AND b.id = ANY($${idxParam})`,
-        ...bookParams, [...indexedIds],
+        `SELECT COUNT(*)::bigint AS count FROM books b ${whereSQL} AND b.id = ANY($${paramIdx})`,
+        ...params, [...indexedIds],
       );
       return Number(rows[0]?.count ?? 0);
     })(),
 
-    // isTranslated count
+    // isTranslated — pre-computed translated_languages array column
     (async () => {
       if (!lang || lang === "none" || lang === "transliteration") return 0;
 
-      // Build a standalone query with fresh param indices
-      const tConditions: string[] = [];
-      const tParams: unknown[] = [];
-      let tIdx = 1;
-
-      if (categoryId) {
-        const ids = categoryId.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0);
-        if (ids.length === 1) {
-          tConditions.push(`b2.category_id = $${tIdx}`);
-          tParams.push(ids[0]);
-          tIdx++;
-        } else if (ids.length > 1) {
-          tConditions.push(`b2.category_id = ANY($${tIdx})`);
-          tParams.push(ids);
-          tIdx++;
-        }
-      }
-
-      if (century) {
-        const centuries = century.split(",").map(Number).filter((n) => n >= 1 && n <= 15);
-        if (centuries.length > 0) {
-          tConditions.push(`b2.author_id IN (SELECT a.id FROM authors a WHERE a.death_century_hijri = ANY($${tIdx}))`);
-          tParams.push(centuries);
-          tIdx++;
-        }
-      }
-
-      const bookFilter = tConditions.length > 0
-        ? `AND p.book_id IN (SELECT b2.id FROM books b2 WHERE ${tConditions.join(" AND ")})`
-        : "";
-
+      const andTranslated = conditions.length > 0
+        ? `AND $${paramIdx}::text = ANY(b.translated_languages)`
+        : `WHERE $${paramIdx}::text = ANY(b.translated_languages)`;
       const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
-        `SELECT COUNT(*)::bigint AS count FROM (
-          SELECT p.book_id
-          FROM pages p
-          LEFT JOIN page_translations pt ON pt.page_id = p.id AND pt.language = $${tIdx}
-          WHERE p.page_number > 0 ${bookFilter}
-          GROUP BY p.book_id
-          HAVING COUNT(*) = COUNT(pt.id)
-        ) t`,
-        ...tParams, lang,
+        `SELECT COUNT(*)::bigint AS count FROM books b ${whereSQL} ${andTranslated}`,
+        ...params, lang,
       );
       return Number(rows[0]?.count ?? 0);
     })(),
@@ -175,8 +120,6 @@ bookFeaturesRoutes.openapi(listFeatures, async (c) => {
     _sources: [...SOURCES.turath],
   };
 
-  featuresCache.set(cacheKey, { data: result, expiry: Date.now() + CACHE_TTL_MS });
-
-  c.header("Cache-Control", "public, max-age=300, stale-while-revalidate=600");
+  c.header("Cache-Control", "public, max-age=86400, stale-while-revalidate=86400");
   return c.json(result, 200);
 });
