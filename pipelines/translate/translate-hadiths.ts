@@ -147,11 +147,17 @@ Guidelines:
 - Keep "Allah" as-is. Keep Islamic terms (Salah, Zakat, Hajj, Sunnah, Jannah, etc.) in their transliterated or conventional ${languageName} forms.
 - Use ﷺ or the conventional ${languageName} honorific for "صلى الله عليه وسلم".
 
+Consistency rules (IMPORTANT — follow these strictly for every hadith in the batch):
+- KITAB headings: Translate the meaning into natural ${languageName}. Do NOT transliterate Arabic titles. E.g. "كتاب الصلاة" → "Book of Prayer", not "Kitab as-Salah".
+- Quoting: When the Prophet ﷺ or anyone is quoted speaking, always use double quotes ("...") consistently. Never use single quotes or unquoted speech.
+- MATN boundaries: The MATN field should contain ONLY the body text of the hadith. If the Arabic MATN ends with an attribution phrase like "رواه البخاري" / "متفق عليه" / "أخرجه مسلم", translate it as a separate sentence at the end but keep it in the MATN. Do NOT move it to a different field.
+- ISNAD boundaries: All narrator honorifics like "رضي الله عنه" / "رضي الله عنهما" belong in the ISNAD translation, not the MATN. If the Arabic split is imperfect, keep the honorific with the narrator it modifies (in ISNAD).
+
 Arabic hadiths:
 ${numberedInputs}
 
 Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
-[{"index": 0, "isnad": "Narrated to us by...", "matn": "The Prophet ﷺ said...", "footnotes": "Also narrated by...", "kitab": "Book of Prayer", "chapter": "Chapter on the Night Prayer"}]`;
+[{"index": 0, "isnad": "Narrated to us by...", "matn": "The Prophet ﷺ said: \\"Verily actions are by intentions...\\"", "footnotes": "Also narrated by...", "kitab": "Book of Prayer", "chapter": "Chapter on the Night Prayer"}]`;
 }
 
 // ---------------------------------------------------------------------------
