@@ -58,6 +58,7 @@ interface HadithWithTranslation {
   sourcePageEnd: number | null;
   textArabic: string;
   // Translation fields
+  text: string; // full composed translation text (fallback)
   isnadTranslation: string | null;
   matnTranslation: string | null;
   footnotesTranslation: string | null;
@@ -110,25 +111,30 @@ function parseArgs(): CLIArgs {
 // Arabic text matching
 // ---------------------------------------------------------------------------
 
+/** Strip guillemets, quotes, dots, and trailing punctuation for cleaner matching */
+function stripQuotes(text: string): string {
+  return text.replace(/[«»""\u201C\u201D]/g, "").trim();
+}
+
 function normalizeForMatch(text: string): string {
-  return normalizeArabic(text).replace(/\s+/g, " ").trim();
+  return normalizeArabic(stripQuotes(text)).replace(/\s+/g, " ").trim();
 }
 
 /**
  * Check if `needle` is a substring of `haystack` after normalization.
- * Returns true if >=60% of the needle's normalized words appear in the haystack.
+ * Also checks word overlap for partial matches.
  */
 function fuzzyContains(haystack: string, needle: string): boolean {
   if (!needle || !haystack) return false;
   const normH = normalizeForMatch(haystack);
   const normN = normalizeForMatch(needle);
-  if (normH.includes(normN)) return true;
+  if (normH.includes(normN) || normN.includes(normH)) return true;
 
-  // Fallback: word overlap — if the needle is long, check if most words match
+  // Word overlap — check if most words of the shorter text appear in the longer
   const needleWords = normN.split(" ").filter((w) => w.length > 2);
   if (needleWords.length < 3) return false;
   const matched = needleWords.filter((w) => normH.includes(w)).length;
-  return matched / needleWords.length >= 0.6;
+  return matched / needleWords.length >= 0.5;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +157,7 @@ function matchParagraphs(
     let matched = false;
 
     for (const h of hadiths) {
-      // Try matching each hadith field
+      // Try matching each structured field (Arabic → translation)
       const fieldPairs: [string | null, string | null][] = [
         [h.isnad, h.isnadTranslation],
         [h.matn, h.matnTranslation],
@@ -163,7 +169,7 @@ function matchParagraphs(
 
       for (const [arabicField, translationField] of fieldPairs) {
         if (!arabicField || !translationField) continue;
-        if (fuzzyContains(para.text, arabicField) || fuzzyContains(arabicField, para.text)) {
+        if (fuzzyContains(para.text, arabicField)) {
           results.push({ index: para.index, translation: translationField, source: "hadith" });
           matched = true;
           break;
@@ -172,11 +178,13 @@ function matchParagraphs(
 
       if (matched) break;
 
-      // Try full textArabic as fallback
-      if (fuzzyContains(para.text, h.textArabic) || fuzzyContains(h.textArabic, para.text)) {
+      // Try full textArabic — use the composed translation (isnad + matn) or the full text field
+      if (fuzzyContains(para.text, h.textArabic)) {
+        // Prefer structured parts, fall back to full HadithTranslation.text
         const composed = [h.isnadTranslation, h.matnTranslation].filter(Boolean).join(" ");
-        if (composed) {
-          results.push({ index: para.index, translation: composed, source: "hadith" });
+        const translation = composed || h.text;
+        if (translation) {
+          results.push({ index: para.index, translation, source: "hadith" });
           matched = true;
           break;
         }
@@ -311,6 +319,7 @@ async function processBook(
     select: {
       bookId: true,
       hadithNumber: true,
+      text: true,
       isnadTranslation: true,
       matnTranslation: true,
       footnotesTranslation: true,
