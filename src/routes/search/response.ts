@@ -131,7 +131,7 @@ export async function fetchBookDetails(
     rankedResults.length > 0
       ? (async () => {
           // Use VALUES list for cleaner query plan with many results
-          const values = rankedResults.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(", ");
+          const values = rankedResults.map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::int)`).join(", ");
           const params = rankedResults.flatMap(r => [r.bookId, r.pageNumber]);
           return prisma.$queryRawUnsafe<{ book_id: string; page_number: number; url_page_index: string }[]>(
             `SELECT book_id, page_number, url_page_index FROM pages WHERE (book_id, page_number) IN (VALUES ${values})`,
