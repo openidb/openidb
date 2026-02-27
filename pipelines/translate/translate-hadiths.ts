@@ -1,9 +1,9 @@
 /**
  * Batch Hadith Translation Pipeline
  *
- * Translates hadiths into target language using Gemini Flash via OpenRouter.
- * Stores structured fields (isnad, matn, footnotes, kitab, chapter, gradeExplanation)
- * in HadithTranslation table.
+ * For each hadith: identifies the isnad/matn split point in Arabic,
+ * then translates to the target language. Stores both the Arabic split
+ * and the structured English translation.
  *
  * Usage:
  *   bun run pipelines/translate/translate-hadiths.ts --lang=en
@@ -49,21 +49,22 @@ interface CLIArgs {
 }
 
 interface HadithRow {
+  id: number;
   bookId: number;
   hadithNumber: string;
   textArabic: string;
-  isnad: string | null;
-  matn: string | null;
   footnotes: string | null;
   kitabArabic: string | null;
   chapterArabic: string | null;
   gradeExplanation: string | null;
 }
 
-interface LLMTranslationItem {
+interface LLMResultItem {
   index: number;
-  isnad?: string;
-  matn?: string;
+  matnStart?: string | null;
+  isnad?: string | null;
+  matn?: string | null;
+  text: string;
   footnotes?: string;
   kitab?: string;
   chapter?: string;
@@ -102,7 +103,7 @@ function parseArgs(): CLIArgs {
 }
 
 // ---------------------------------------------------------------------------
-// LLM prompt (reused from hadith-translate.ts)
+// LLM prompt
 // ---------------------------------------------------------------------------
 
 function buildPrompt(hadiths: HadithRow[], indices: number[], languageName: string, lang: string): string {
@@ -112,9 +113,7 @@ function buildPrompt(hadiths: HadithRow[], indices: number[], languageName: stri
     const h = hadiths[idx];
     const parts: string[] = [`[${i}]`];
 
-    if (h.isnad) parts.push(`ISNAD: ${h.isnad}`);
-    if (h.matn) parts.push(`MATN: ${h.matn}`);
-    if (!h.isnad && !h.matn) parts.push(`MATN: ${h.textArabic}`);
+    parts.push(`TEXT: ${h.textArabic}`);
     if (h.footnotes) parts.push(`FOOTNOTES: ${h.footnotes}`);
     if (h.kitabArabic) parts.push(`KITAB: ${h.kitabArabic}`);
     if (h.chapterArabic) parts.push(`CHAPTER: ${h.chapterArabic}`);
@@ -123,22 +122,39 @@ function buildPrompt(hadiths: HadithRow[], indices: number[], languageName: stri
     return parts.join("\n");
   }).join("\n\n");
 
-  return `Translate the following Arabic hadith fields to ${languageName}.
-Each hadith is numbered with [N] and has labeled fields (ISNAD, MATN, FOOTNOTES, KITAB, CHAPTER, GRADE_EXPLANATION).
-Return a JSON array where each element has:
+  return `Translate the following Arabic hadiths to ${languageName}, and identify the isnad/matn split point.
+
+Each hadith is numbered with [N] and has a TEXT field (the full Arabic text), plus optional FOOTNOTES, KITAB, CHAPTER, GRADE_EXPLANATION fields.
+
+For each hadith, return a JSON object with:
 - "index": the hadith number [N]
-- "isnad": translated chain of narrators (if ISNAD was provided)
-- "matn": translated hadith body text (if MATN was provided)
+- "matnStart": the first 5-8 words of the matn (body text) copied EXACTLY from the Arabic TEXT — same diacritics, same spelling, same characters. Must be long enough to be unique within the hadith. If no isnad/matn split applies, set to null.
+- "isnad": translated chain of narrators (everything before matnStart), or null if no split
+- "matn": translated body text (everything from matnStart onward), or null if no split
+- "text": full translated text (always provided — used when no split, or as fallback)
 - "footnotes": translated scholarly footnotes (if FOOTNOTES was provided)
 - "kitab": translated book/section heading (if KITAB was provided)
 - "chapter": translated chapter heading (if CHAPTER was provided)
 - "gradeExplanation": translated grade reasoning (if GRADE_EXPLANATION was provided)
 
-Only include fields that were present in the input. Do not include the original Arabic or the field labels.
+How to identify the isnad/matn split:
+- The isnad is the chain of transmission: scholars narrating from one another using "حدثنا" / "أخبرنا" / "عن" etc. It ends with the final narrator (usually a companion) and their "قال/قالت".
+- The isnad may contain multiple instances of "قال" within the chain itself (e.g. "حدثنا يعقوب قال حدثنا إسماعيل"). These are all part of the isnad.
+- The matn begins where the actual narrated CONTENT starts — what the companion witnessed, experienced, or heard. This includes:
+  - "قال رسول الله ﷺ: إنما الأعمال..." (the Prophet speaking is narrated content)
+  - "غزوت مع النبي ﷺ..." (companion describing events)
+  - "كان النبي ﷺ يصلي..." (companion describing the Prophet's habits)
+  - "رأيت النبي ﷺ..." (companion reporting what they saw)
+- In short: the isnad = WHO transmitted it. The matn = WHAT was transmitted (including "the Prophet ﷺ said" when present).
+
+Not all hadiths have an isnad/matn split. Set matnStart to null when:
+- The text is a du'a (supplication) with no narrator chain, e.g. "اللهم إني أعوذ بك..."
+- The text is editorial or commentary with no narration structure
+In these cases, return only "text" (the full translation) and set isnad, matn, and matnStart to null.
 
 Context: These hadiths are the recorded sayings and actions of the Prophet Muhammad ﷺ, the final Prophet and Messenger of Allah sent as a mercy to all of creation. His character was described by his wife Aisha (may Allah be pleased with her) as "the Quran" — he embodied its teachings — and Allah praised him saying "You are truly of outstanding character" (Quran 68:4).
 
-Guidelines:
+Translation guidelines:
 - Translate each field faithfully, preserving the meaning and tone.
 - Keep narrator names in standard transliterated forms (e.g. Abu Hurayrah, Ibn Abbas, Aisha).${isEnglish ? `
 - "حدثنا" / "أخبرنا" → "narrated to us" / "informed us"
@@ -151,18 +167,28 @@ Consistency rules (IMPORTANT — follow these strictly for every hadith in the b
 - Clarifying markers: When you add words not explicitly in the Arabic to clarify meaning, wrap them in ˹...˺ (Unicode angle brackets). Use these for implied subjects, contextual glosses, or disambiguations that aid the reader. Do NOT overuse them — only when the added word is genuinely absent from the Arabic but needed for natural ${languageName}.
 - KITAB headings: Translate the meaning into natural ${languageName}. Do NOT transliterate Arabic titles. E.g. "كتاب الصلاة" → "Book of Prayer", not "Kitab as-Salah".
 - Quoting: When the Prophet ﷺ or anyone is quoted speaking, always use double quotes ("...") consistently. Never use single quotes or unquoted speech.
-- MATN: Translate the Arabic MATN faithfully as-is. It already contains the correct content (including phrases like "the Prophet ﷺ said", attributions, etc.). Do not rearrange, omit, or move any part of it.
-- ISNAD: Translate the Arabic ISNAD faithfully as-is. Keep all narrator honorifics where they appear in the source.
+- Translate the Arabic text faithfully as-is. Do not rearrange, omit, or move any part of it.
 
 Arabic hadiths:
 ${numberedInputs}
 
 Translate to ${languageName}. Respond with ONLY a valid JSON array. Example:
-[{"index": 0, "isnad": "Narrated to us by...", "matn": "The Prophet ﷺ said: \\"Verily actions are by intentions...\\"", "footnotes": "Also narrated by...", "kitab": "Book of Prayer", "chapter": "Chapter on the Night Prayer"}]`;
+[{"index": 0, "matnStart": "قَالَ رَسُولُ اللَّهِ صلى الله عليه", "isnad": "On the authority of Umar bin al-Khattab (may Allah be pleased with him) who said:", "matn": "The Messenger of Allah ﷺ said: \\"Verily actions are by intentions...\\"", "text": "On the authority of Umar bin al-Khattab (may Allah be pleased with him) who said: The Messenger of Allah ﷺ said: \\"Verily actions are by intentions...\\"", "kitab": "Book of Faith", "chapter": "Chapter on Intentions"}]`;
 }
 
 // ---------------------------------------------------------------------------
-// LLM translation with retry
+// Arabic split logic
+// ---------------------------------------------------------------------------
+
+function findSplitPoint(textArabic: string, matnStart: string): number {
+  // Exact substring match — no normalization
+  const idx = textArabic.indexOf(matnStart);
+  if (idx > 0) return idx;
+  return -1;
+}
+
+// ---------------------------------------------------------------------------
+// LLM call with retry
 // ---------------------------------------------------------------------------
 
 function cleanLLMResponse(content: string): string {
@@ -183,7 +209,7 @@ async function translateBatchWithRetry(
   languageName: string,
   lang: string,
   maxRetries = 3,
-): Promise<LLMTranslationItem[]> {
+): Promise<LLMResultItem[]> {
   const prompt = buildPrompt(hadiths, indices, languageName, lang);
   let lastError: Error | null = null;
 
@@ -202,13 +228,15 @@ async function translateBatchWithRetry(
       const parsed = JSON.parse(cleaned);
       if (!Array.isArray(parsed)) throw new Error("LLM response is not an array");
 
-      const translations: LLMTranslationItem[] = [];
+      const results: LLMResultItem[] = [];
       for (const item of parsed) {
         if (typeof item?.index === "number" && Number.isFinite(item.index)) {
-          translations.push({
+          results.push({
             index: item.index,
-            isnad: typeof item.isnad === "string" ? item.isnad.slice(0, 30_000) : undefined,
-            matn: typeof item.matn === "string" ? item.matn.slice(0, 30_000) : undefined,
+            matnStart: typeof item.matnStart === "string" ? item.matnStart : null,
+            isnad: typeof item.isnad === "string" ? item.isnad.slice(0, 30_000) : null,
+            matn: typeof item.matn === "string" ? item.matn.slice(0, 30_000) : null,
+            text: typeof item.text === "string" ? item.text.slice(0, 60_000) : "",
             footnotes: typeof item.footnotes === "string" ? item.footnotes.slice(0, 30_000) : undefined,
             kitab: typeof item.kitab === "string" ? item.kitab.slice(0, 1000) : undefined,
             chapter: typeof item.chapter === "string" ? item.chapter.slice(0, 1000) : undefined,
@@ -217,8 +245,8 @@ async function translateBatchWithRetry(
         }
       }
 
-      if (translations.length === 0) throw new Error("No valid translations parsed");
-      return translations;
+      if (results.length === 0) throw new Error("No valid results parsed");
+      return results;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       const isRateLimit = lastError.message.includes("429") || lastError.message.includes("rate");
@@ -235,22 +263,50 @@ async function translateBatchWithRetry(
 }
 
 // ---------------------------------------------------------------------------
-// Persist translations
+// Persist results (Arabic split + translation)
 // ---------------------------------------------------------------------------
 
-async function persistTranslations(
+let splitFound = 0;
+let splitNotFound = 0;
+let noSplitApplicable = 0;
+
+async function persistResults(
   hadiths: HadithRow[],
   indices: number[],
-  translations: LLMTranslationItem[],
+  results: LLMResultItem[],
   lang: string,
 ): Promise<number> {
   let saved = 0;
 
-  for (const t of translations) {
-    const hadith = hadiths[indices[t.index]];
+  for (const r of results) {
+    const hadith = hadiths[indices[r.index]];
     if (!hadith) continue;
+    if (!r.text && !r.isnad && !r.matn) continue;
 
-    const composedText = [t.isnad, t.matn].filter(Boolean).join(" ") || "";
+    // 1. Apply Arabic isnad/matn split
+    if (r.matnStart) {
+      const splitIdx = findSplitPoint(hadith.textArabic, r.matnStart);
+      if (splitIdx > 0) {
+        const arabicIsnad = hadith.textArabic.slice(0, splitIdx).trim();
+        const arabicMatn = hadith.textArabic.slice(splitIdx).trim();
+        try {
+          await prisma.hadith.update({
+            where: { id: hadith.id },
+            data: { isnad: arabicIsnad, matn: arabicMatn },
+          });
+          splitFound++;
+        } catch (err) {
+          console.error(`    Failed to update Arabic split for ${hadith.bookId}:${hadith.hadithNumber}:`, err);
+        }
+      } else {
+        splitNotFound++;
+      }
+    } else {
+      noSplitApplicable++;
+    }
+
+    // 2. Save translation
+    const composedText = r.text || [r.isnad, r.matn].filter(Boolean).join(" ") || "";
     if (!composedText) continue;
 
     try {
@@ -266,12 +322,12 @@ async function persistTranslations(
           text: composedText,
           source: "llm",
           model: MODEL_KEY,
-          isnadTranslation: t.isnad || null,
-          matnTranslation: t.matn || null,
-          footnotesTranslation: t.footnotes || null,
-          kitabTranslation: t.kitab || null,
-          chapterTranslation: t.chapter || null,
-          gradeExplanationTranslation: t.gradeExplanation || null,
+          isnadTranslation: r.isnad || null,
+          matnTranslation: r.matn || null,
+          footnotesTranslation: r.footnotes || null,
+          kitabTranslation: r.kitab || null,
+          chapterTranslation: r.chapter || null,
+          gradeExplanationTranslation: r.gradeExplanation || null,
         },
         create: {
           bookId: hadith.bookId,
@@ -280,17 +336,17 @@ async function persistTranslations(
           text: composedText,
           source: "llm",
           model: MODEL_KEY,
-          isnadTranslation: t.isnad || null,
-          matnTranslation: t.matn || null,
-          footnotesTranslation: t.footnotes || null,
-          kitabTranslation: t.kitab || null,
-          chapterTranslation: t.chapter || null,
-          gradeExplanationTranslation: t.gradeExplanation || null,
+          isnadTranslation: r.isnad || null,
+          matnTranslation: r.matn || null,
+          footnotesTranslation: r.footnotes || null,
+          kitabTranslation: r.kitab || null,
+          chapterTranslation: r.chapter || null,
+          gradeExplanationTranslation: r.gradeExplanation || null,
         },
       });
       saved++;
     } catch (err) {
-      console.error(`    Failed to persist ${hadith.bookId}:${hadith.hadithNumber}:`, err);
+      console.error(`    Failed to persist translation ${hadith.bookId}:${hadith.hadithNumber}:`, err);
     }
   }
 
@@ -308,7 +364,6 @@ async function translateCollection(
   const { lang, batchSize, concurrency, force, dryRun } = args;
   const languageName = LANGUAGE_NAMES[lang];
 
-  // Find the collection + all its book IDs
   const collection = await prisma.hadithCollection.findUnique({
     where: { slug: config.slug },
     select: { id: true, books: { select: { id: true } } },
@@ -321,16 +376,14 @@ async function translateCollection(
 
   const bookIds = collection.books.map((b) => b.id);
 
-  // Fetch all hadiths for this collection
   const allHadiths: HadithRow[] = await prisma.hadith.findMany({
     where: { bookId: { in: bookIds } },
     orderBy: [{ bookId: "asc" }, { hadithNumber: "asc" }],
     select: {
+      id: true,
       bookId: true,
       hadithNumber: true,
       textArabic: true,
-      isnad: true,
-      matn: true,
       footnotes: true,
       kitabArabic: true,
       chapterArabic: true,
@@ -398,8 +451,8 @@ async function translateCollection(
       const last = allHadiths[batch[batch.length - 1]];
 
       try {
-        const translations = await translateBatchWithRetry(allHadiths, batch, languageName, lang);
-        const saved = await persistTranslations(allHadiths, batch, translations, lang);
+        const results = await translateBatchWithRetry(allHadiths, batch, languageName, lang);
+        const saved = await persistResults(allHadiths, batch, results, lang);
         totalTranslated += saved;
 
         if ((batchIdx + 1) % 10 === 0 || batchIdx === batches.length - 1) {
@@ -426,18 +479,22 @@ async function translateCollection(
 async function main() {
   const args = parseArgs();
 
-  console.log("Hadith Translation Pipeline");
+  console.log("Hadith Translation Pipeline (with Arabic split)");
   console.log(`Language: ${args.lang} | Concurrency: ${args.concurrency} | Batch size: ${args.batchSize}`);
   if (args.force) console.log("Force mode: re-translating existing translations");
   if (args.dryRun) console.log("Dry run mode: no translations will be performed");
 
-  // Determine which collections to process
   const slugs = args.collectionSlug
     ? [args.collectionSlug]
     : Object.keys(COLLECTIONS);
 
   let grandTotal = 0;
   let grandFailed = 0;
+
+  // Reset split counters
+  splitFound = 0;
+  splitNotFound = 0;
+  noSplitApplicable = 0;
 
   for (const slug of slugs) {
     const config = COLLECTIONS[slug];
@@ -460,6 +517,7 @@ async function main() {
   }
 
   console.log(`\nTotal: ${grandTotal} translations saved, ${grandFailed} failed`);
+  console.log(`Arabic splits: ${splitFound} found, ${splitNotFound} not found, ${noSplitApplicable} not applicable`);
   await prisma.$disconnect();
 }
 
