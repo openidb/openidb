@@ -10,14 +10,13 @@
  *   bun run pipelines/import/remove-suyuti-collection.ts --force      (actually delete)
  */
 
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../src/db";
 import { QdrantClient } from "@qdrant/js-client-rest";
 
 const SLUG = "suyuti";
 const ES_INDEX = "arabic_hadiths";
 const QDRANT_COLLECTIONS = ["hadiths", "hadiths_jina"];
 
-const prisma = new PrismaClient();
 const qdrant = new QdrantClient({
   url: process.env.QDRANT_URL || "http://localhost:6333",
 });
@@ -37,8 +36,7 @@ async function main() {
 
   if (!collection) {
     console.log(`No hadith collection found with slug "${SLUG}". Nothing to do.`);
-    await prisma.$disconnect();
-    return;
+    process.exit(0);
   }
 
   console.log(`Found collection: ${collection.name} (id=${collection.id})`);
@@ -69,8 +67,7 @@ async function main() {
     console.log(`  ES: delete_by_query on ${ES_INDEX} where collection_slug="${SLUG}"`);
     console.log(`  Qdrant: delete points where collectionSlug="${SLUG}" from ${QDRANT_COLLECTIONS.join(", ")}`);
     console.log(`\nRe-run with --force to execute.`);
-    await prisma.$disconnect();
-    return;
+    process.exit(0);
   }
 
   // === FORCE MODE: Delete everything ===
@@ -143,11 +140,10 @@ async function main() {
   }
 
   console.log(`\nDone. Suyuti removed from hadith system.`);
-  await prisma.$disconnect();
+  process.exit(0);
 }
 
 main().catch((err) => {
   console.error(err);
-  prisma.$disconnect();
   process.exit(1);
 });
