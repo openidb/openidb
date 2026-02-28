@@ -238,11 +238,11 @@ booksRoutes.openapi(listBooks, async (c) => {
 
   const whereSQL = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  // When ES provides ranked IDs, preserve ES relevance order; otherwise sort by numeric ID
+  // When ES provides ranked IDs, preserve ES relevance order; otherwise sort by display_order (fallback to id)
   const useESOrder = esIds !== null && esIds.length > 0;
   const orderSQL = useESOrder
     ? `ORDER BY array_position($${paramIdx}::text[], b.id)`
-    : `ORDER BY CAST(b.id AS INTEGER)`;
+    : `ORDER BY COALESCE(b.display_order, 2147483647), CAST(b.id AS INTEGER)`;
   const orderParams = useESOrder ? [esIds] : [];
 
   const [idRows, countRows] = await Promise.all([
@@ -319,7 +319,7 @@ booksRoutes.openapi(getBook, async (c) => {
   const { id } = c.req.valid("param");
   const { bookTitleLang } = c.req.valid("query");
 
-  const [book, lastPage, volumeStarts, translatedLangs] = await Promise.all([
+  const [book, lastPage, volumeStarts, volumeMaxPages, translatedLangs] = await Promise.all([
     prisma.book.findUnique({
       where: { id },
       select: {
@@ -379,6 +379,12 @@ booksRoutes.openapi(getBook, async (c) => {
       _min: { pageNumber: true },
       orderBy: { volumeNumber: "asc" },
     }),
+    prisma.page.groupBy({
+      by: ["volumeNumber"],
+      where: { bookId: id, printedPageNumber: { not: null } },
+      _max: { printedPageNumber: true },
+      orderBy: { volumeNumber: "asc" },
+    }),
     prisma.$queryRawUnsafe<{ language: string }[]>(
       `SELECT pt.language FROM page_translations pt
        JOIN pages p ON pt.page_id = p.id
@@ -407,6 +413,11 @@ booksRoutes.openapi(getBook, async (c) => {
         volumeStarts
           .filter((v) => v.volumeNumber > 0)
           .map((v) => [String(v.volumeNumber), v._min.pageNumber!])
+      ),
+      volumeMaxPrintedPages: Object.fromEntries(
+        volumeMaxPages
+          .filter((v) => v.volumeNumber > 0 && v._max.printedPageNumber != null)
+          .map((v) => [String(v.volumeNumber), v._max.printedPageNumber!])
       ),
       displayDate: rest.author?.deathDateHijri || rest.publicationYearHijri || null,
       displayDateType: rest.author?.deathDateHijri ? "death" : rest.publicationYearHijri ? "publication" : null,

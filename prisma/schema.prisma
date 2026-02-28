@@ -147,6 +147,9 @@ model Book {
   // File Reference
   filename String // EPUB filename
 
+  // Display ordering (lower = higher importance, NULL falls back to id)
+  displayOrder Int? @map("display_order")
+
   // Time Period (for filtering/grouping)
   timePeriod String? @map("time_period")
 
@@ -161,6 +164,7 @@ model Book {
 
   @@index([authorId])
   @@index([categoryId])
+  @@index([displayOrder])
   @@map("books")
 }
 
