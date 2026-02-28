@@ -319,7 +319,7 @@ booksRoutes.openapi(getBook, async (c) => {
   const { id } = c.req.valid("param");
   const { bookTitleLang } = c.req.valid("query");
 
-  const [book, lastPage, volumeStarts, volumeMaxPages, translatedLangs] = await Promise.all([
+  const [book, lastPage, volumeStarts, volumeMaxPages, volumeMinPages, translatedLangs] = await Promise.all([
     prisma.book.findUnique({
       where: { id },
       select: {
@@ -385,6 +385,12 @@ booksRoutes.openapi(getBook, async (c) => {
       _max: { printedPageNumber: true },
       orderBy: { volumeNumber: "asc" },
     }),
+    prisma.page.groupBy({
+      by: ["volumeNumber"],
+      where: { bookId: id, printedPageNumber: { not: null } },
+      _min: { printedPageNumber: true },
+      orderBy: { volumeNumber: "asc" },
+    }),
     prisma.$queryRawUnsafe<{ language: string }[]>(
       `SELECT pt.language FROM page_translations pt
        JOIN pages p ON pt.page_id = p.id
@@ -403,21 +409,30 @@ booksRoutes.openapi(getBook, async (c) => {
     titleTranslations?: { title: string }[];
   };
 
+  // Exclude volume 0 (front matter) from volume maps
+  const realVolumeStarts = volumeStarts.filter((v) => v.volumeNumber > 0);
+  const realVolumeCount = realVolumeStarts.length || book.totalVolumes;
+
   c.header("Cache-Control", "public, max-age=86400, stale-while-revalidate=86400");
   return c.json({
     book: {
       ...rest,
+      totalVolumes: realVolumeCount,
       titleTranslated: titleTranslations?.[0]?.title || null,
       maxPrintedPage: lastPage?.printedPageNumber ?? book.totalPages,
       volumeStartPages: Object.fromEntries(
-        volumeStarts
-          .filter((v) => v.volumeNumber > 0)
+        realVolumeStarts
           .map((v) => [String(v.volumeNumber), v._min.pageNumber!])
       ),
       volumeMaxPrintedPages: Object.fromEntries(
         volumeMaxPages
           .filter((v) => v.volumeNumber > 0 && v._max.printedPageNumber != null)
           .map((v) => [String(v.volumeNumber), v._max.printedPageNumber!])
+      ),
+      volumeMinPrintedPages: Object.fromEntries(
+        volumeMinPages
+          .filter((v) => v.volumeNumber > 0 && v._min.printedPageNumber != null)
+          .map((v) => [String(v.volumeNumber), v._min.printedPageNumber!])
       ),
       displayDate: rest.author?.deathDateHijri || rest.publicationYearHijri || null,
       displayDateType: rest.author?.deathDateHijri ? "death" : rest.publicationYearHijri ? "publication" : null,
