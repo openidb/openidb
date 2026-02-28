@@ -985,6 +985,15 @@ export async function importTurathBook(
 
     if (!quiet) console.log(); // newline after progress
 
+    // 9c. Update totalPages to match actual inserted count
+    if (importedPages !== content.pages.length + 1) {
+      await prisma.book.update({
+        where: { id: bookId },
+        data: { totalPages: importedPages },
+      });
+      log(`  Updated totalPages: ${content.pages.length + 1} → ${importedPages} (${skippedPages} empty pages excluded)`);
+    }
+
     // 10. Print final summary
     log("\n" + "=".repeat(60));
     log("IMPORT COMPLETE");

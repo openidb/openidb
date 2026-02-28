@@ -1,14 +1,14 @@
 /**
  * Batch Book Translation Pipeline
  *
- * Translates entire books by stitching pages into token-budget chunks (~30K tokens),
- * sending each chunk to the LLM with full surrounding context, then mapping
- * translations back to individual PageTranslation records.
+ * Translates entire books by grouping pages into token-budget chunks (~8K tokens),
+ * sending each chunk to the LLM with full surrounding context, then saving
+ * translations back as individual PageTranslation records (1:1 paragraph mapping).
  *
  * Usage:
  *   bun run pipelines/translate/translate-book.ts --book=4 --lang=en
  *   bun run pipelines/translate/translate-book.ts --book=4,10,200 --lang=en
- *   bun run pipelines/translate/translate-book.ts --book=4 --lang=en --concurrency=5 --max-tokens=30000
+ *   bun run pipelines/translate/translate-book.ts --book=4 --lang=en --concurrency=10 --max-tokens=8000
  *   bun run pipelines/translate/translate-book.ts --book=4 --lang=en --force
  *   bun run pipelines/translate/translate-book.ts --book=4 --lang=en --dry-run
  *   bun run pipelines/translate/translate-book.ts --book=4 --lang=en --model=gemini-flash
@@ -57,16 +57,6 @@ interface TaggedParagraph {
   text: string;
 }
 
-interface MergedParagraph {
-  text: string;
-  segments: Array<{
-    pageNumber: number;
-    originalIndex: number;
-    charStart: number;
-    charEnd: number;
-  }>;
-}
-
 interface Chunk {
   index: number;
   pages: PageData[];
@@ -94,8 +84,8 @@ function parseArgs(): CLIArgs {
   let bookIds: string[] = [];
   let lang = "";
   let modelKey = "gemini-flash";
-  let concurrency = 5;
-  let maxTokens = 30000;
+  let concurrency = 10;
+  let maxTokens = 8000;
   let force = false;
   let dryRun = false;
   let startPage = 1;
@@ -109,9 +99,9 @@ function parseArgs(): CLIArgs {
     } else if (arg.startsWith("--model=")) {
       modelKey = arg.slice(8);
     } else if (arg.startsWith("--concurrency=")) {
-      concurrency = parseInt(arg.slice(14), 10) || 5;
+      concurrency = parseInt(arg.slice(14), 10) || 10;
     } else if (arg.startsWith("--max-tokens=")) {
-      maxTokens = parseInt(arg.slice(13), 10) || 30000;
+      maxTokens = parseInt(arg.slice(13), 10) || 8000;
     } else if (arg === "--force") {
       force = true;
     } else if (arg === "--dry-run") {
@@ -153,7 +143,7 @@ function estimateTokens(text: string): number {
 }
 
 // ---------------------------------------------------------------------------
-// Chunking
+// Chunking — groups consecutive pages up to token budget
 // ---------------------------------------------------------------------------
 
 function buildChunks(pages: PageData[], maxTokens: number): Chunk[] {
@@ -182,19 +172,10 @@ function buildChunks(pages: PageData[], maxTokens: number): Chunk[] {
 }
 
 // ---------------------------------------------------------------------------
-// Paragraph stitching
+// Extract tagged paragraphs from pages (no merging — 1:1 mapping)
 // ---------------------------------------------------------------------------
 
-function shouldMerge(lastParagraph: string, firstParagraph: string): boolean {
-  if (lastParagraph.includes('data-type="title"')) return false;
-  if (firstParagraph.includes('data-type="title"')) return false;
-  const sentenceEnders = /[.،؛:؟!\u06D4]\s*$/;
-  if (sentenceEnders.test(lastParagraph)) return false;
-  return true;
-}
-
-function buildMergedParagraphs(pages: PageData[]): MergedParagraph[] {
-  // Extract and tag paragraphs per page
+function extractTaggedParagraphs(pages: PageData[]): TaggedParagraph[] {
   const tagged: TaggedParagraph[] = [];
   for (const page of pages) {
     const paras = extractParagraphs(page.contentHtml);
@@ -202,49 +183,7 @@ function buildMergedParagraphs(pages: PageData[]): MergedParagraph[] {
       tagged.push({ pageNumber: page.pageNumber, originalIndex: p.index, text: p.text });
     }
   }
-
-  if (tagged.length === 0) return [];
-
-  // Build merged paragraphs, joining cross-page continuations
-  const merged: MergedParagraph[] = [];
-
-  for (let i = 0; i < tagged.length; i++) {
-    const t = tagged[i];
-    const prev = i > 0 ? tagged[i - 1] : null;
-
-    // Check if this paragraph should be merged with the previous one
-    // (cross-page continuation: different page, no sentence-ending punctuation)
-    if (
-      prev &&
-      prev.pageNumber !== t.pageNumber &&
-      merged.length > 0 &&
-      shouldMerge(prev.text, t.text)
-    ) {
-      // Merge into the last merged paragraph
-      const last = merged[merged.length - 1];
-      const charStart = last.text.length + 1; // +1 for the space
-      last.text += " " + t.text;
-      last.segments.push({
-        pageNumber: t.pageNumber,
-        originalIndex: t.originalIndex,
-        charStart,
-        charEnd: last.text.length,
-      });
-    } else {
-      // New paragraph
-      merged.push({
-        text: t.text,
-        segments: [{
-          pageNumber: t.pageNumber,
-          originalIndex: t.originalIndex,
-          charStart: 0,
-          charEnd: t.text.length,
-        }],
-      });
-    }
-  }
-
-  return merged;
+  return tagged;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +232,7 @@ function cleanLLMResponse(content: string): string {
 }
 
 async function translateChunkWithRetry(
-  paragraphs: MergedParagraph[],
+  paragraphs: TaggedParagraph[],
   bookTitle: string,
   authorName: string,
   targetLanguage: string,
@@ -309,8 +248,10 @@ Translate the following Arabic paragraphs to ${targetLanguage}.
 Each paragraph is numbered [N]. Return a JSON array: [{"index": N, "translation": "..."}].
 
 IMPORTANT — All paragraphs come from consecutive pages of the same book.
+Some paragraphs may be continuations of the previous one (split across pages).
 Use the full context to disambiguate pronouns, maintain consistent terminology,
-and understand technical terms in context.
+and understand technical terms in context. Translate each paragraph exactly as given —
+do NOT merge or combine paragraphs, even if they are continuations.
 
 Preserve Islamic terminology in their conventional ${targetLanguage === "English" ? "English/transliterated" : targetLanguage} forms:
 - Surah names: keep the standard transliteration (e.g. al-Baqarah, al-Qasas) — do NOT translate surah names into literal meanings
@@ -332,7 +273,7 @@ Respond with ONLY a valid JSON array.`;
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.25,
-        timeoutMs: 1800_000, // 30 minutes for large chunks
+        timeoutMs: 120_000, // 2 minutes per chunk
       });
 
       if (!result) {
@@ -379,46 +320,21 @@ Respond with ONLY a valid JSON array.`;
 }
 
 // ---------------------------------------------------------------------------
-// Map translations back to pages
+// Map translations back to pages (1:1 — no merging)
 // ---------------------------------------------------------------------------
 
 function mapTranslationsToPages(
-  mergedParagraphs: MergedParagraph[],
+  taggedParagraphs: TaggedParagraph[],
   translations: { index: number; translation: string }[],
 ): Map<number, { index: number; translation: string }[]> {
   const pageMap = new Map<number, { index: number; translation: string }[]>();
 
   for (const t of translations) {
-    const mp = mergedParagraphs[t.index];
-    if (!mp) continue;
+    const para = taggedParagraphs[t.index];
+    if (!para) continue;
 
-    if (mp.segments.length === 1) {
-      // Single-page paragraph — assign to that page
-      const seg = mp.segments[0];
-      if (!pageMap.has(seg.pageNumber)) pageMap.set(seg.pageNumber, []);
-      pageMap.get(seg.pageNumber)!.push({ index: seg.originalIndex, translation: t.translation });
-    } else {
-      // Cross-page paragraph — full translation on starting page
-      const firstSeg = mp.segments[0];
-      if (!pageMap.has(firstSeg.pageNumber)) pageMap.set(firstSeg.pageNumber, []);
-      pageMap.get(firstSeg.pageNumber)!.push({ index: firstSeg.originalIndex, translation: t.translation });
-
-      // Proportional word-split for continuation pages
-      const words = t.translation.split(/\s+/);
-      const totalChars = mp.text.length;
-
-      for (let s = 1; s < mp.segments.length; s++) {
-        const seg = mp.segments[s];
-        const segChars = seg.charEnd - seg.charStart;
-        const proportion = segChars / totalChars;
-        const startWord = Math.round(words.length * (seg.charStart / totalChars));
-        const wordCount = Math.max(1, Math.round(words.length * proportion));
-        const segTranslation = words.slice(startWord, startWord + wordCount).join(" ");
-
-        if (!pageMap.has(seg.pageNumber)) pageMap.set(seg.pageNumber, []);
-        pageMap.get(seg.pageNumber)!.push({ index: seg.originalIndex, translation: segTranslation });
-      }
-    }
+    if (!pageMap.has(para.pageNumber)) pageMap.set(para.pageNumber, []);
+    pageMap.get(para.pageNumber)!.push({ index: para.originalIndex, translation: t.translation });
   }
 
   return pageMap;
@@ -487,7 +403,7 @@ async function processChunk(
 
   let totalSaved = 0;
 
-  // Handle oversized pages separately
+  // Handle oversized pages separately by splitting their paragraphs
   for (const page of oversizedPages) {
     const paras = extractParagraphs(page.contentHtml);
     const tagged: TaggedParagraph[] = paras.map((p) => ({
@@ -502,13 +418,8 @@ async function processChunk(
     const allTranslations: { index: number; translation: string }[] = [];
 
     for (let i = 0; i < subChunks.length; i++) {
-      const subMerged: MergedParagraph[] = subChunks[i].map((t) => ({
-        text: t.text,
-        segments: [{ pageNumber: t.pageNumber, originalIndex: t.originalIndex, charStart: 0, charEnd: t.text.length }],
-      }));
-
       const subTranslations = await translateChunkWithRetry(
-        subMerged, bookTitle, authorName, LANGUAGE_NAMES[lang], modelKey,
+        subChunks[i], bookTitle, authorName, LANGUAGE_NAMES[lang], modelKey,
       );
 
       // Remap sub-chunk indices to original indices
@@ -532,20 +443,20 @@ async function processChunk(
     }
   }
 
-  // Process normal pages as a group with paragraph stitching
+  // Process normal pages — extract paragraphs per page, translate as a flat list
   if (normalPages.length > 0) {
-    const mergedParagraphs = buildMergedParagraphs(normalPages);
+    const taggedParagraphs = extractTaggedParagraphs(normalPages);
 
-    if (mergedParagraphs.length === 0) {
+    if (taggedParagraphs.length === 0) {
       console.log(`  [chunk ${chunk.index}] pages ${pageRange}: no translatable content`);
       return { saved: totalSaved, failed: false };
     }
 
     const translations = await translateChunkWithRetry(
-      mergedParagraphs, bookTitle, authorName, LANGUAGE_NAMES[lang], modelKey,
+      taggedParagraphs, bookTitle, authorName, LANGUAGE_NAMES[lang], modelKey,
     );
 
-    const pageMap = mapTranslationsToPages(mergedParagraphs, translations);
+    const pageMap = mapTranslationsToPages(taggedParagraphs, translations);
     const saved = await savePageTranslations(pageMap, normalPages, bookId, lang, modelKey);
     totalSaved += saved;
   }
@@ -692,8 +603,8 @@ async function translateBook(bookId: string, args: CLIArgs): Promise<void> {
     console.log("\n  [DRY RUN] Chunk plan:");
     for (const chunk of chunks) {
       const pageRange = `${chunk.pages[0].pageNumber}-${chunk.pages[chunk.pages.length - 1].pageNumber}`;
-      const mergedCount = buildMergedParagraphs(chunk.pages).length;
-      console.log(`    chunk ${chunk.index}: pages ${pageRange} (${chunk.pages.length} pages, ~${chunk.estimatedTokens} tokens, ${mergedCount} paragraphs)`);
+      const paraCount = extractTaggedParagraphs(chunk.pages).length;
+      console.log(`    chunk ${chunk.index}: pages ${pageRange} (${chunk.pages.length} pages, ~${chunk.estimatedTokens} tokens, ${paraCount} paragraphs)`);
     }
     return;
   }
