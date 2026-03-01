@@ -254,20 +254,13 @@ Preserve terms in conventional ${targetLanguage === "English" ? "English/transli
 ═══ QURAN VERSES — MOST CRITICAL RULE ═══
 NEVER translate Quran text yourself. Replace EVERY Quran verse with a {{Q:surah:ayah}} marker.
 
-Detection — mark ALL of the following as Quran:
-• Any text inside Quranic brackets ﴿...﴾
-• Text following "قال تعالى", "قال الله", "قوله تعالى", "قوله عزّ وجلّ", "لقوله", "كقوله", "قال سبحانه", "قال جلّ وعلا"
-• Text following "والتي يقول الله فيها", "في قوله", "بقوله", "إلى قوله", "الآية", or similar Quran-citing phrases
-• Verses you recognize from the Quran even if not explicitly attributed
+Detection: Text inside ﴿...﴾ (Quranic brackets) or after Quran-citing phrases (قال تعالى، قوله تعالى، لقوله، كقوله، في قوله، بقوله، إلى قوله، الآية, etc.) is almost always Quran. Also mark any verse you confidently recognize even without explicit attribution.
 
 Format: {{Q:surah:ayah}} or {{Q:surah:start-end}} for ranges. Keep surah references [البقرة: ٢٨٢] → [al-Baqarah: 282] AFTER the marker.
 
 Examples:
 ARABIC: كقوله: ﴿فَكَذَّبُوهُ فَعَقَرُوهَا فَدَمْدَمَ عَلَيْهِمْ رَبُّهُمْ بِذَنْبِهِمْ فَسَوَّاهَا﴾ [الشمس: ١٤] وقوله: ﴿فَعَصَوْا رَسُولَ رَبِّهِمْ فَأَخَذَهُمْ أَخْذَةً رَابِيَةً﴾ [الحاقة: ١٠]
 → such as His saying: {{Q:91:14}} [ash-Shams: 14], and His saying: {{Q:69:10}} [al-Haqqah: 10]
-
-ARABIC: كما في قوله تعالى في سورة النساء (٩٣): ﴿وَمَنْ يَقْتُلْ مُؤْمِنًا مُتَعَمِّدًا فَجَزَاؤُهُ جَهَنَّمُ خَالِدًا فِيهَا وَغَضِبَ اللَّهُ عَلَيْهِ وَلَعَنَهُ وَأَعَدَّ لَهُ عَذَابًا عَظِيمًا﴾
-→ As in the saying of the Exalted in Surah an-Nisa' (93): {{Q:4:93}}
 
 ARABIC: ﴿فَلَوْلَا أَنَّهُ كَانَ مِنَ الْمُسَبِّحِينَ (١٤٣) لَلَبِثَ فِي بَطْنِهِ إِلَى يَوْمِ يُبْعَثُونَ (١٤٤)﴾ [الصافات: ١٤٣ - ١٤٤]
 → {{Q:37:143-144}} [as-Saffat: 143-144]
@@ -280,6 +273,7 @@ Example: فإن كنتَ قد أوحشتك الذنوبُ … فدَعْها إ�
 
 ═══ FOOTNOTES & MANUSCRIPT VARIANTS ═══
 Manuscript sigla: ف→F, ز→Z, ل→L, س→S, خ‌أ→KhA. Format: "(N) Z: 'variant.'" Cross-refs: "(N) See: [title] (vol/page)."
+Footnote markers appear as (^١) or (١) — translate both as (1), (2), etc.
 Examples:
 (^١) ز: "فكر". → (1) Z: "thought."
 (^٣) سبق في ص (١٣٣). → (3) Previously mentioned on p. 133.
