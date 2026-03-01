@@ -259,10 +259,23 @@ Preserve Islamic terminology in their conventional ${targetLanguage === "English
 - "صلى الله عليه وسلم" → "peace be upon him" or "ﷺ"
 - Keep: Salah, Zakat, Hajj, Iman, Taqwa, Sunnah, Hadith, Fiqh, Tafsir, Ijma, Qiyas, etc.
 
+Quran verses: Do NOT translate Quran verses yourself. Instead, replace the quoted verse text with a marker tag in the format {{Q:surah_number:ayah_number}} (e.g. {{Q:2:255}}) or {{Q:surah_number:ayah_start-ayah_end}} for ranges (e.g. {{Q:112:1-4}}). If the Arabic includes a reference like (سورة الإخلاص: ٢), translate only the reference label (e.g. [Surah al-Ikhlas: 2]) and still mark the verse text itself. If you can identify the verse but the Arabic provides no reference, include the marker without adding a reference. If you cannot identify the surah/ayah, translate the verse text directly as a fallback. Translate all surrounding non-Quran text normally.
+
+Speech and quoting: When the text reports speech (e.g. "قال", "قالت", "قال رسول الله"), always use double quotes ("...") for the quoted words. Be consistent — never use single quotes or unquoted speech for direct quotations.
+
+Section headers: Some paragraphs are chapter or section titles (e.g. "باب كذا", "فصل في كذا"). Translate these concisely as headings — do not add extra words or turn them into full sentences.
+
+Tone and register: Match the style and register of the original Arabic. If the text is scholarly and formal, translate formally. If it is narrative or devotional, reflect that tone. Do not flatten the author's voice into a single generic register.
+
+Clarifying markers: When you add words not explicitly in the Arabic to clarify meaning, wrap them in ˹...˺ (Unicode angle brackets). Use these for implied subjects, contextual glosses, or disambiguations that aid the reader. Do NOT overuse — only when the added word is genuinely absent from the Arabic but needed for natural ${targetLanguage}.
+
+CRITICAL: Only translate the exact text provided in each paragraph. Do NOT complete, extend, or add content from memory even if you recognize a well-known passage. If a paragraph appears truncated or incomplete, translate only what is given — do not fill in the rest.
+
 Arabic paragraphs:
 ${numberedParagraphs}
 
-Respond with ONLY a valid JSON array.`;
+Respond with ONLY a valid JSON array. Example format:
+[{"index": 0, "translation": "..."}, {"index": 1, "translation": "..."}]`;
 
   let lastError: Error | null = null;
 
@@ -316,6 +329,127 @@ Respond with ONLY a valid JSON array.`;
   }
 
   throw lastError || new Error("Translation failed after retries");
+}
+
+// ---------------------------------------------------------------------------
+// Quran verse marker resolution: {{Q:surah:ayah}} → official translation
+// ---------------------------------------------------------------------------
+
+// Default Quran translation editions per language
+const QURAN_EDITIONS: Record<string, string> = {
+  en: "eng-mustafakhattaba",
+};
+
+const QURAN_MARKER_RE = /\{\{Q:(\d+):(\d+)(?:-(\d+))?\}\}/g;
+
+interface AyahRef {
+  surah: number;
+  ayahStart: number;
+  ayahEnd: number;
+}
+
+function extractQuranRefs(translations: { index: number; translation: string }[]): AyahRef[] {
+  const refs: AyahRef[] = [];
+  const seen = new Set<string>();
+  for (const t of translations) {
+    let match;
+    QURAN_MARKER_RE.lastIndex = 0;
+    while ((match = QURAN_MARKER_RE.exec(t.translation)) !== null) {
+      const surah = parseInt(match[1], 10);
+      const ayahStart = parseInt(match[2], 10);
+      const ayahEnd = match[3] ? parseInt(match[3], 10) : ayahStart;
+      for (let a = ayahStart; a <= ayahEnd; a++) {
+        const key = `${surah}:${a}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          refs.push({ surah, ayahStart: a, ayahEnd: a });
+        }
+      }
+    }
+  }
+  return refs;
+}
+
+async function fetchAyahTranslations(
+  refs: AyahRef[],
+  lang: string,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (refs.length === 0) return map;
+
+  const editionId = QURAN_EDITIONS[lang];
+
+  // Build WHERE conditions for batch query
+  const conditions = refs.map((r) => ({
+    surahNumber: r.surah,
+    ayahNumber: r.ayahStart,
+  }));
+
+  const rows = await prisma.ayahTranslation.findMany({
+    where: {
+      OR: conditions,
+      ...(editionId ? { editionId } : { language: lang }),
+    },
+    select: { surahNumber: true, ayahNumber: true, text: true },
+  });
+
+  for (const row of rows) {
+    map.set(`${row.surahNumber}:${row.ayahNumber}`, row.text);
+  }
+
+  return map;
+}
+
+function replaceQuranMarkers(
+  text: string,
+  ayahMap: Map<string, string>,
+): string {
+  return text.replace(QURAN_MARKER_RE, (fullMatch, surahStr, startStr, endStr) => {
+    const surah = parseInt(surahStr, 10);
+    const ayahStart = parseInt(startStr, 10);
+    const ayahEnd = endStr ? parseInt(endStr, 10) : ayahStart;
+
+    const parts: string[] = [];
+    let allFound = true;
+    for (let a = ayahStart; a <= ayahEnd; a++) {
+      const t = ayahMap.get(`${surah}:${a}`);
+      if (t) {
+        parts.push(t);
+      } else {
+        allFound = false;
+        break;
+      }
+    }
+
+    if (allFound && parts.length > 0) {
+      return `"${parts.join(" ")}"`;
+    }
+    // Fallback: leave marker if we couldn't resolve it
+    return fullMatch;
+  });
+}
+
+async function resolveQuranMarkers(
+  translations: { index: number; translation: string }[],
+  lang: string,
+): Promise<{ index: number; translation: string }[]> {
+  const refs = extractQuranRefs(translations);
+  if (refs.length === 0) return translations;
+
+  const ayahMap = await fetchAyahTranslations(refs, lang);
+  if (ayahMap.size === 0) return translations;
+
+  const resolved = translations.map((t) => ({
+    index: t.index,
+    translation: replaceQuranMarkers(t.translation, ayahMap),
+  }));
+
+  const resolvedCount = refs.length - extractQuranRefs(resolved).length;
+  if (resolvedCount > 0) {
+    console.log(`    [quran] Resolved ${resolvedCount}/${refs.length} verse markers`);
+  }
+
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
@@ -431,12 +565,13 @@ async function processChunk(
     }
 
     if (allTranslations.length > 0) {
-      allTranslations.sort((a, b) => a.index - b.index);
-      const contentHash = hashPageTranslation(bookId, page.pageNumber, lang, allTranslations);
+      const resolved = await resolveQuranMarkers(allTranslations, lang);
+      resolved.sort((a, b) => a.index - b.index);
+      const contentHash = hashPageTranslation(bookId, page.pageNumber, lang, resolved);
       await prisma.pageTranslation.upsert({
         where: { pageId_language: { pageId: page.id, language: lang } },
-        update: { model: modelKey, paragraphs: allTranslations, contentHash },
-        create: { pageId: page.id, language: lang, model: modelKey, paragraphs: allTranslations, contentHash },
+        update: { model: modelKey, paragraphs: resolved, contentHash },
+        create: { pageId: page.id, language: lang, model: modelKey, paragraphs: resolved, contentHash },
       });
       totalSaved++;
     }
@@ -451,9 +586,10 @@ async function processChunk(
       return { saved: totalSaved, failed: false };
     }
 
-    const translations = await translateChunkWithRetry(
+    const rawTranslations = await translateChunkWithRetry(
       taggedParagraphs, bookTitle, authorName, LANGUAGE_NAMES[lang], modelKey,
     );
+    const translations = await resolveQuranMarkers(rawTranslations, lang);
 
     const pageMap = mapTranslationsToPages(taggedParagraphs, translations);
     const saved = await savePageTranslations(pageMap, normalPages, bookId, lang, modelKey);
