@@ -290,7 +290,6 @@ Examples:
 • Tone: match the original register — scholarly, narrative, or devotional
 • Clarifying markers: wrap added words in ˹...˺ for implied subjects or disambiguations
 
-═══ ANTI-HALLUCINATION ═══
 CRITICAL: Only translate the exact text provided. Do NOT complete, extend, or add content from memory even if you recognize a passage. If a paragraph is truncated, translate only what is given.
 
 Arabic paragraphs:
