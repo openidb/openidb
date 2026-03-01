@@ -9,10 +9,9 @@
  *   bun run pipelines/translate/fix-quran-verses.ts --book=98093 --lang=en [--dry-run] [--start-page=N] [--concurrency=N]
  */
 
-import { PrismaClient } from "../../src/generated/prisma/client";
+import "../env";
+import { prisma } from "../../src/db";
 import { callOpenRouter } from "../../src/lib/openrouter";
-
-const prisma = new PrismaClient();
 
 // ---------------------------------------------------------------------------
 // Config
