@@ -259,7 +259,21 @@ Preserve Islamic terminology in their conventional ${targetLanguage === "English
 - "صلى الله عليه وسلم" → "peace be upon him" or "ﷺ"
 - Keep: Salah, Zakat, Hajj, Iman, Taqwa, Sunnah, Hadith, Fiqh, Tafsir, Ijma, Qiyas, etc.
 
-Quran verses: Do NOT translate Quran verses yourself. Instead, replace the quoted verse text with a marker tag in the format {{Q:surah_number:ayah_number}} (e.g. {{Q:2:255}}) or {{Q:surah_number:ayah_start-ayah_end}} for ranges (e.g. {{Q:112:1-4}}). If the Arabic includes a reference like (سورة الإخلاص: ٢), translate only the reference label (e.g. [Surah al-Ikhlas: 2]) and still mark the verse text itself. If you can identify the verse but the Arabic provides no reference, include the marker without adding a reference. If you cannot identify the surah/ayah, translate the verse text directly as a fallback. Translate all surrounding non-Quran text normally.
+Quran verses — THIS IS CRITICAL:
+Any Arabic text that is a Quran verse MUST be replaced with a {{Q:surah:ayah}} marker tag. NEVER translate Quran text yourself.
+How to detect Quran verses:
+- Text inside Quranic brackets ﴿...﴾ is ALWAYS a Quran verse — mark it.
+- Text preceded by "قال تعالى", "قوله تعالى", "لقوله", "كقوله" etc. is almost always a Quran verse.
+- Any well-known Quran phrase you recognize, even without brackets or attribution, should be marked.
+Format: {{Q:surah_number:ayah_number}} for single ayah, {{Q:surah_number:start-end}} for ranges.
+Examples:
+- ﴿فَلَا أُقْسِمُ بِمَا تُبْصِرُونَ وَمَا لَا تُبْصِرُونَ إِنَّهُ لَقَوْلُ رَسُولٍ كَرِيمٍ﴾ → {{Q:69:38-40}}
+- ﴿وَفِي أَنفُسِكُمْ أَفَلَا تُبْصِرُونَ﴾ → {{Q:51:21}}
+- قال تعالى: ﴿إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ﴾ → He, the Exalted, said: {{Q:1:5}}
+If the Arabic includes a surah reference like (سورة الإخلاص: ٢), translate ONLY the reference label (e.g. [Surah al-Ikhlas: 2]) — the verse text itself still gets a marker.
+If a verse spans a page break and is incomplete/truncated, still mark it with what you can identify.
+If you truly cannot identify the surah/ayah number, translate as a last resort — but this should be extremely rare.
+Translate all surrounding non-Quran text normally.
 
 Speech and quoting: When the text reports speech (e.g. "قال", "قالت", "قال رسول الله"), always use double quotes ("...") for the quoted words. Be consistent — never use single quotes or unquoted speech for direct quotations.
 
