@@ -100,8 +100,9 @@ export async function executeRefineSearch(params: SearchParams): Promise<RefineS
     const qEmbedding = precomputedEmbeddings[queryIndex];
 
     const [bookSemantic, bookKeyword] = await Promise.all([
-      semanticSearch(q, refineBookPerQuery, null, refineSimilarityCutoff, qEmbedding, embeddingModel).catch(err => { console.error("[RefineSearch] search error:", err.message); return []; }),
-      shouldSkipKeyword
+      // Book embeddings not yet populated — skip semantic book search
+      Promise.resolve([] as RankedResult[]),
+      shouldSkipKeyword || !includeBooks
         ? Promise.resolve([] as RankedResult[])
         : keywordSearchES(q, refineBookPerQuery, null, fuzzyOptions).catch(err => { console.error("[RefineSearch] search error:", err.message); return []; }),
     ]);

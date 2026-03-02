@@ -118,11 +118,8 @@ export async function executeStandardSearch(params: SearchParams): Promise<Stand
 
   // PHASE 2: Start semantic searches
   const semBooksTimer = startTimer();
-  const semanticBooksPromise = (mode === "keyword" || !includeBooks)
-    ? Promise.resolve([] as RankedResult[])
-    : semanticSearch(query, fetchLimit, bookId, similarityCutoff, queryEmbedding, embeddingModel)
-        .then(res => { timing.semantic.books = semBooksTimer(); return res; })
-        .catch(err => { console.error("[SearchEngine] semantic books:", err.message); return [] as RankedResult[]; });
+  // Book embeddings not yet populated — skip semantic book search
+  const semanticBooksPromise = Promise.resolve([] as RankedResult[]);
 
   const defaultAyahMeta: AyahSearchMeta = { collection: quranCollectionName, usedFallback: false, embeddingTechnique: "metadata-translation" };
 
