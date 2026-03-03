@@ -126,6 +126,24 @@ const getPagePdf = createRoute({
   },
 });
 
+const getBookToc = createRoute({
+  method: "get",
+  path: "/{id}/toc",
+  tags: ["Books"],
+  summary: "Get table of contents for a book",
+  request: { params: BookIdParam },
+  responses: {
+    200: {
+      content: { "application/json": { schema: z.object({ toc: z.array(z.object({ title: z.string(), level: z.number(), page: z.number() })) }) } },
+      description: "Table of contents",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Book not found",
+    },
+  },
+});
+
 // --- Handlers ---
 
 export const booksRoutes = new OpenAPIHono();
@@ -335,7 +353,7 @@ booksRoutes.openapi(getBook, async (c) => {
         verificationStatus: true,
         descriptionHtml: true,
         summary: true,
-        tableOfContents: true,
+        // tableOfContents excluded — lazy-loaded via /api/books/:id/toc
         author: {
           select: {
             id: true,
@@ -441,6 +459,17 @@ booksRoutes.openapi(getBook, async (c) => {
     },
     _sources: [...SOURCES.turath],
   }, 200);
+});
+
+booksRoutes.openapi(getBookToc, async (c) => {
+  const { id } = c.req.valid("param");
+  const book = await prisma.book.findUnique({
+    where: { id },
+    select: { tableOfContents: true },
+  });
+  if (!book) return c.json({ error: "Book not found" }, 404);
+  c.header("Cache-Control", "public, max-age=86400, stale-while-revalidate=86400, immutable");
+  return c.json({ toc: (book.tableOfContents as { title: string; level: number; page: number }[]) || [] }, 200);
 });
 
 booksRoutes.openapi(getPageTranslation, async (c) => {
