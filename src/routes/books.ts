@@ -337,125 +337,81 @@ booksRoutes.openapi(getBook, async (c) => {
   const { id } = c.req.valid("param");
   const { bookTitleLang } = c.req.valid("query");
 
-  const [book, lastPage, volumeStarts, volumeMaxPages, volumeMinPages, translatedLangs] = await Promise.all([
-    prisma.book.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        titleArabic: true,
-        titleLatin: true,
-        filename: true,
-        totalVolumes: true,
-        totalPages: true,
-        publicationYearHijri: true,
-        publicationYearGregorian: true,
-        publicationEdition: true,
-        verificationStatus: true,
-        descriptionHtml: true,
-        summary: true,
-        // tableOfContents excluded — lazy-loaded via /api/books/:id/toc
-        author: {
-          select: {
-            id: true,
-            nameArabic: true,
-            nameLatin: true,
-            deathDateHijri: true,
-            deathDateGregorian: true,
-          },
+  const book = await prisma.book.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      titleArabic: true,
+      titleLatin: true,
+      filename: true,
+      totalVolumes: true,
+      totalPages: true,
+      publicationYearHijri: true,
+      publicationYearGregorian: true,
+      publicationEdition: true,
+      verificationStatus: true,
+      descriptionHtml: true,
+      summary: true,
+      // Pre-computed fields (backfilled via backfill-book-computed-fields)
+      maxPrintedPage: true,
+      volumeStartPages: true,
+      volumeMaxPrintedPages: true,
+      volumeMinPrintedPages: true,
+      translatedLanguages: true,
+      author: {
+        select: {
+          id: true,
+          nameArabic: true,
+          nameLatin: true,
+          deathDateHijri: true,
+          deathDateGregorian: true,
         },
-        category: {
-          select: { id: true, nameArabic: true, nameEnglish: true },
-        },
-        publisher: {
-          select: { name: true, location: true },
-        },
-        editor: {
-          select: { name: true },
-        },
-        keywords: {
-          select: { keyword: true },
-        },
-        ...(bookTitleLang && bookTitleLang !== "none" && bookTitleLang !== "transliteration"
-          ? {
-              titleTranslations: {
-                where: { language: bookTitleLang },
-                select: { title: true },
-                take: 1,
-              },
-            }
-          : {}),
       },
-    }),
-    prisma.page.findFirst({
-      where: { bookId: id, printedPageNumber: { not: null } },
-      orderBy: { printedPageNumber: "desc" },
-      select: { printedPageNumber: true },
-    }),
-    prisma.page.groupBy({
-      by: ["volumeNumber"],
-      where: { bookId: id },
-      _min: { pageNumber: true },
-      orderBy: { volumeNumber: "asc" },
-    }),
-    prisma.page.groupBy({
-      by: ["volumeNumber"],
-      where: { bookId: id, printedPageNumber: { not: null } },
-      _max: { printedPageNumber: true },
-      orderBy: { volumeNumber: "asc" },
-    }),
-    prisma.page.groupBy({
-      by: ["volumeNumber"],
-      where: { bookId: id, printedPageNumber: { not: null } },
-      _min: { printedPageNumber: true },
-      orderBy: { volumeNumber: "asc" },
-    }),
-    prisma.$queryRawUnsafe<{ language: string }[]>(
-      `SELECT pt.language FROM page_translations pt
-       JOIN pages p ON pt.page_id = p.id
-       WHERE p.book_id = $1 AND p.page_number > 0
-       GROUP BY pt.language
-       HAVING COUNT(DISTINCT p.id) = (SELECT COUNT(*) FROM pages WHERE book_id = $1 AND page_number > 0)`,
-      id,
-    ),
-  ]);
+      category: {
+        select: { id: true, nameArabic: true, nameEnglish: true },
+      },
+      publisher: {
+        select: { name: true, location: true },
+      },
+      editor: {
+        select: { name: true },
+      },
+      keywords: {
+        select: { keyword: true },
+      },
+      ...(bookTitleLang && bookTitleLang !== "none" && bookTitleLang !== "transliteration"
+        ? {
+            titleTranslations: {
+              where: { language: bookTitleLang },
+              select: { title: true },
+              take: 1,
+            },
+          }
+        : {}),
+    },
+  });
 
   if (!book) {
     return c.json({ error: "Book not found" }, 404);
   }
 
-  const { titleTranslations, ...rest } = book as typeof book & {
+  const { titleTranslations, translatedLanguages, volumeStartPages, volumeMaxPrintedPages, volumeMinPrintedPages, ...rest } = book as typeof book & {
     titleTranslations?: { title: string }[];
   };
-
-  // Exclude volume 0 (front matter) from volume maps
-  const realVolumeStarts = volumeStarts.filter((v) => v.volumeNumber > 0);
-  const realVolumeCount = realVolumeStarts.length || book.totalVolumes;
 
   c.header("Cache-Control", "public, max-age=86400, stale-while-revalidate=86400");
   return c.json({
     book: {
       ...rest,
-      totalVolumes: realVolumeCount,
       titleTranslated: titleTranslations?.[0]?.title || null,
-      maxPrintedPage: lastPage?.printedPageNumber ?? book.totalPages,
-      volumeStartPages: Object.fromEntries(
-        realVolumeStarts
-          .map((v) => [String(v.volumeNumber), v._min.pageNumber!])
-      ),
-      volumeMaxPrintedPages: Object.fromEntries(
-        volumeMaxPages
-          .filter((v) => v.volumeNumber > 0 && v._max.printedPageNumber != null)
-          .map((v) => [String(v.volumeNumber), v._max.printedPageNumber!])
-      ),
-      volumeMinPrintedPages: Object.fromEntries(
-        volumeMinPages
-          .filter((v) => v.volumeNumber > 0 && v._min.printedPageNumber != null)
-          .map((v) => [String(v.volumeNumber), v._min.printedPageNumber!])
-      ),
+      maxPrintedPage: rest.maxPrintedPage ?? rest.totalPages,
+      volumeStartPages: (volumeStartPages as Record<string, number>) || {},
+      volumeMaxPrintedPages: (volumeMaxPrintedPages as Record<string, number>) || {},
+      volumeMinPrintedPages: (volumeMinPrintedPages as Record<string, number>) || {},
       displayDate: rest.author?.deathDateHijri || rest.publicationYearHijri || null,
       displayDateType: rest.author?.deathDateHijri ? "death" : rest.publicationYearHijri ? "publication" : null,
       referenceUrl: generateBookReferenceUrl(rest.id),
-      ...(translatedLangs.length > 0 ? { translatedLanguages: translatedLangs.map((r) => r.language) } : {}),
+      ...(translatedLanguages.length > 0 ? { translatedLanguages } : {}),
     },
     _sources: [...SOURCES.turath],
   }, 200);

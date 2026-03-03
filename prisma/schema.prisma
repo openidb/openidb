@@ -153,9 +153,13 @@ model Book {
   // Time Period (for filtering/grouping)
   timePeriod String? @map("time_period")
 
-  // Pre-computed feature flags (updated via recompute-book-features script)
-  hasPdf              Boolean  @default(false) @map("has_pdf")
-  translatedLanguages String[] @default([]) @map("translated_languages")
+  // Pre-computed fields (updated via backfill-book-computed-fields script)
+  hasPdf                Boolean  @default(false) @map("has_pdf")
+  translatedLanguages   String[] @default([]) @map("translated_languages")
+  maxPrintedPage        Int?     @map("max_printed_page")
+  volumeStartPages      Json?    @map("volume_start_pages")
+  volumeMaxPrintedPages Json?    @map("volume_max_printed_pages")
+  volumeMinPrintedPages Json?    @map("volume_min_printed_pages")
 
   // Relationships
   keywords          BookKeyword[]
