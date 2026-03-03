@@ -468,13 +468,7 @@ booksRoutes.openapi(getPage, async (c) => {
       volumeNumber: true,
       urlPageIndex: true,
       printedPageNumber: true,
-      contentPlain: true,
       contentHtml: true,
-      contentHash: true,
-      hasPoetry: true,
-      hasHadith: true,
-      hasQuran: true,
-      sourceUrl: true,
       pdfUrl: true,
     },
   });
